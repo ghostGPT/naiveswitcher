@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -66,8 +68,6 @@ func main() {
 		return
 	}
 
-	go serveWeb()
-
 	var err error
 	hostUrls, err = handleSwitch(hostUrls)
 	if err != nil {
@@ -97,6 +97,25 @@ func main() {
 		}
 	}()
 
+	// graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	go serveTCP(l, doSwitch)
+	go serveWeb()
+
+	<-ctx.Done()
+	println("Shutting down")
+	if naiveCmd != nil {
+		if err := naiveCmd.Process.Kill(); err != nil {
+			println("Error killing naive: ", err)
+		}
+		naiveCmd.Wait()
+	}
+	println("Shutdown complete")
+}
+
+func serveTCP(l net.Listener, doSwitch chan<- struct{}) {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -165,9 +184,13 @@ func updater(signal <-chan struct{}) {
 				return
 			}
 
-			naiveCmd.Process.Kill()
-			naiveCmd.Wait()
-			naiveCmd = nil
+			if naiveCmd != nil {
+				if err := naiveCmd.Process.Kill(); err != nil {
+					service.DebugF("Error killing naive: %v\n", err)
+				}
+				naiveCmd.Wait()
+				naiveCmd = nil
+			}
 
 			os.Remove(service.BasePath + "/" + service.Naive)
 			service.Naive = newNaive
