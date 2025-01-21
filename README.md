@@ -1,6 +1,17 @@
 # Naive Switcher
 
+## Folder Structure
+
 ```shell
+|- path-to-naiveswitcher
+   |- naiveswitcher
+   |- naiveproxy-v131.0.6778.86-1-mac-x64
+```
+
+## Usage
+
+```shell
+$ ./naiveswitcher -h
 Usage of ./naiveswitcher:
   -a int
     	Auto switch fastest duration (minutes) (default 30)
