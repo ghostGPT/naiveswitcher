@@ -56,7 +56,7 @@ func main() {
 	flag.StringVar(&dnsResolverIP, "r", "8.8.4.4:53", "DNS resolver IP")
 	flag.BoolVar(&service.Debug, "d", false, "Debug mode")
 	flag.IntVar(&autoSwitchDuration, "a", 30, "Auto switch fastest duration (minutes)")
-	flag.StringVar(&hostUrls[0], "b", "", "Boots")
+	flag.StringVar(&hostUrls[0], "b", "", "Bootup node (default naive node https://a:b@domain:port)")
 	flag.BoolVar(&showVersion, "v", false, "Show version")
 	flag.Parse()
 
