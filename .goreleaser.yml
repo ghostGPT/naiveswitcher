@@ -39,9 +39,9 @@ archives:
   - name_template: "naiveswitcher_{{ .Os }}_{{ .Arch }}"
     format: zip
     files:
-      - LICENSE
+      # - LICENSE
       - README.md
-      - data
+      # - data
 dockers:
   - use: buildx
     goos: linux
