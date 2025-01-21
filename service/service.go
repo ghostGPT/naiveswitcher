@@ -14,7 +14,7 @@ var (
 )
 
 const (
-	UpstreamListenPort = "127.0.0.1:1079"
+	UpstreamListenPort = "127.0.0.1:10790"
 )
 
 func Init() {

@@ -22,6 +22,7 @@ var (
 	naiveCmd                          *exec.Cmd
 	errorCount                        int
 
+	version              string
 	autoSwitchDuration   int
 	dnsResolverIP        string  // Google DNS resolver.
 	dnsResolverProto     = "udp" // Protocol to use for the DNS resolver
@@ -47,7 +48,7 @@ func init() {
 }
 
 func main() {
-	service.Init()
+	var showVersion bool
 
 	flag.StringVar(&subscribeURL, "s", "https://example.com/sublink", "Subscribe to a URL")
 	flag.StringVar(&listenPort, "l", "0.0.0.0:1080", "Listen port")
@@ -56,7 +57,15 @@ func main() {
 	flag.BoolVar(&service.Debug, "d", false, "Debug mode")
 	flag.IntVar(&autoSwitchDuration, "a", 30, "Auto switch fastest duration (minutes)")
 	flag.StringVar(&hostUrls[0], "b", "", "Boots")
+	flag.BoolVar(&showVersion, "v", false, "Show version")
 	flag.Parse()
+
+	if showVersion {
+		println(version)
+		return
+	}
+
+	service.Init()
 
 	if subscribeURL == "" {
 		println("Please provide a subscribe URL")
@@ -204,6 +213,8 @@ func updater(signal <-chan struct{}) {
 			if err := naiveCmd.Start(); err != nil {
 				service.DebugF("Error starting naive: %v\n", err)
 			}
+
+			service.DebugF("Updated to %s\n", service.Naive)
 		}()
 	}
 }
@@ -248,6 +259,8 @@ func handleSwitch(oldHostUrls []string) ([]string, error) {
 }
 
 func handleConnection(conn net.Conn, doSwitch chan<- struct{}) {
+	defer conn.Close()
+
 	if naiveCmd == nil {
 		conn.Close()
 		service.DebugF("No naive running\n")
@@ -259,14 +272,11 @@ func handleConnection(conn net.Conn, doSwitch chan<- struct{}) {
 
 	naiveConn, err := net.Dial("tcp", service.UpstreamListenPort)
 	if err == nil {
+		defer naiveConn.Close()
 		go func() {
 			io.Copy(naiveConn, conn)
-			naiveConn.Close()
 		}()
 		written, _ = io.Copy(conn, naiveConn)
-		conn.Close()
-	} else {
-		conn.Close()
 	}
 
 	if written == 12 {
@@ -275,7 +285,8 @@ func handleConnection(conn net.Conn, doSwitch chan<- struct{}) {
 	} else {
 		errorCount = 0
 	}
-	if errorCount > 5 {
+
+	if errorCount > 10 {
 		errorCount = 0
 		service.DebugF("Error count exceeded, switching\n")
 		doSwitch <- struct{}{}

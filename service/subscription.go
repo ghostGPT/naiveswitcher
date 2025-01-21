@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 )
 
 func Subscription(subscribeURL string) ([]string, error) {
@@ -58,7 +59,7 @@ func Fastest(hostUrls []string) (string, error) {
 		err  error
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	results := make(chan result, len(hostUrls))
