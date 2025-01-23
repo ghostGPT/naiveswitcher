@@ -16,8 +16,15 @@ import (
 
 func Subscription(subscribeURL string) ([]string, error) {
 	var hostUrls []string
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	resp, err := http.Get(subscribeURL)
+	req, err := http.NewRequest("GET", subscribeURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +98,7 @@ func Fastest(hostUrls []string) (string, error) {
 				Proxy: http.ProxyURL(proxyUrl)},
 			}
 
-			req, err := http.NewRequest("GET", "http://www.google.com/generate_204", nil)
+			req, err := http.NewRequest("GET", "https://wikipedia.org", nil)
 			if err != nil {
 				finalError = err
 				return
@@ -105,14 +112,14 @@ func Fastest(hostUrls []string) (string, error) {
 			}
 			defer resp.Body.Close()
 
-			_, err = io.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				finalError = err
 				return
 			}
 
-			if resp.StatusCode != http.StatusNoContent {
-				finalError = fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+			if len(body) < 200 {
+				finalError = fmt.Errorf("invalid response, status code: %d, body: %s", resp.StatusCode, string(body))
 				return
 			}
 		}(host)
@@ -122,6 +129,7 @@ func Fastest(hostUrls []string) (string, error) {
 	for range hostUrls {
 		res := <-results
 		if res.err != nil {
+			DebugF("check activity failed, host: %s, error: %s\n", res.host, res.err)
 			continue
 		}
 		if fastest == "" {
