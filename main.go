@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"naiveswitcher/service"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -144,6 +146,31 @@ func serveTCP(l net.Listener, doSwitch chan<- struct{}) {
 func serveWeb() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		service.WriteLog(w)
+	})
+	http.HandleFunc("/v", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(version))
+	})
+	http.HandleFunc("/s", func(w http.ResponseWriter, r *http.Request) {
+		newHostUrls, err := service.Subscription(subscribeURL)
+		if err != nil {
+			w.Write([]byte(err.Error() + "\n"))
+		} else {
+			hostUrls = newHostUrls
+		}
+		w.Write([]byte(fmt.Sprintf("%d servers in pool\n", len(hostUrls))))
+		for _, host := range hostUrls {
+			u, err := url.Parse(host)
+			if err != nil {
+				w.Write([]byte(err.Error()))
+				return
+			}
+			ip, err := net.LookupIP(u.Hostname())
+			if err != nil {
+				w.Write([]byte(err.Error()))
+				return
+			}
+			w.Write([]byte(ip[0].String() + "\n"))
+		}
 	})
 	http.ListenAndServe(webPort, nil)
 }

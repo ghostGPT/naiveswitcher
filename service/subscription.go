@@ -98,7 +98,7 @@ func Fastest(hostUrls []string) (string, error) {
 				Proxy: http.ProxyURL(proxyUrl)},
 			}
 
-			req, err := http.NewRequest("GET", "https://wikipedia.org", nil)
+			req, err := http.NewRequest("GET", fmt.Sprintf("%s://%s/1Mb.dat", proxyUrl.Scheme, proxyUrl.Host), nil)
 			if err != nil {
 				finalError = err
 				return
