@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -125,13 +126,18 @@ func main() {
 }
 
 func serveTCP(l net.Listener, doSwitch chan<- struct{}) {
+	bufPool := &sync.Pool{
+		New: func() interface{} {
+			return make([]byte, 32*1024)
+		},
+	}
 	for {
 		conn, err := l.Accept()
 		if err != nil {
 			service.DebugF("Error accepting connection: %v\n", err)
 			continue
 		}
-		go handleConnection(conn, doSwitch)
+		go handleConnection(conn, bufPool, doSwitch)
 	}
 }
 
@@ -259,7 +265,7 @@ func handleSwitch(oldHostUrls []string) ([]string, error) {
 	return hostUrls, nil
 }
 
-func handleConnection(conn net.Conn, doSwitch chan<- struct{}) {
+func handleConnection(conn net.Conn, bufPool *sync.Pool, doSwitch chan<- struct{}) {
 	defer conn.Close()
 
 	if naiveCmd == nil {
@@ -268,18 +274,23 @@ func handleConnection(conn net.Conn, doSwitch chan<- struct{}) {
 		return
 	}
 
-	written := int64(12)
+	var serverDone bool = true
+	var remoteOk bool
 
 	naiveConn, err := net.Dial("tcp", service.UpstreamListenPort)
 	if err == nil {
-		defer naiveConn.Close()
 		go func() {
-			io.Copy(naiveConn, conn)
+			defer naiveConn.Close()
+			_, e := io.Copy(naiveConn, conn)
+			remoteOk = e == nil
 		}()
-		written, _ = io.Copy(conn, naiveConn)
+		buf := bufPool.Get()
+		written, _ := io.CopyBuffer(service.NewDowngradeReaderWriter(conn), service.NewDowngradeReaderWriter(naiveConn), buf.([]byte))
+		serverDone = isServerDone(int(written), buf.([]byte), remoteOk)
+		bufPool.Put(buf)
 	}
 
-	if written == 12 {
+	if serverDone {
 		// magic number for server connection error
 		errorCount++
 	} else {
@@ -290,4 +301,30 @@ func handleConnection(conn net.Conn, doSwitch chan<- struct{}) {
 		errorCount = 0
 		doSwitch <- struct{}{}
 	}
+}
+
+func isServerDone(written int, data []byte, remoteOk bool) bool {
+	if remoteOk {
+		return false
+	}
+	if written != 12 {
+		return false
+	}
+	for i, v := range data[:12] {
+		switch i {
+		case 0:
+			if v != 5 {
+				return false
+			}
+		case 3:
+			if v != 1 {
+				return false
+			}
+		default:
+			if v != 0 {
+				return false
+			}
+		}
+	}
+	return true
 }
