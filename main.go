@@ -150,6 +150,7 @@ func switcher(doSwitch <-chan struct{}) {
 			continue
 		}
 		switching = true
+		service.DebugF("Error count exceeded, switching\n")
 		go func() {
 			defer func() {
 				switching = false
@@ -262,7 +263,6 @@ func handleConnection(conn net.Conn, doSwitch chan<- struct{}) {
 	defer conn.Close()
 
 	if naiveCmd == nil {
-		conn.Close()
 		service.DebugF("No naive running\n")
 		doSwitch <- struct{}{}
 		return
@@ -288,7 +288,6 @@ func handleConnection(conn net.Conn, doSwitch chan<- struct{}) {
 
 	if errorCount > 10 {
 		errorCount = 0
-		service.DebugF("Error count exceeded, switching\n")
 		doSwitch <- struct{}{}
 	}
 }
