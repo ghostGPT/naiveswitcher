@@ -183,10 +183,11 @@ func switcher(doSwitch <-chan struct{}) {
 			continue
 		}
 		switching = true
-		service.DebugF("Error count exceeded, switching\n")
+		service.DebugF("Switching server...\n")
 		go func() {
 			defer func() {
 				switching = false
+				service.DebugF("Switching done\n")
 			}()
 			hostUrls, err = handleSwitch(hostUrls)
 			if err != nil {
@@ -326,6 +327,7 @@ func handleConnection(conn net.Conn, bufPool *sync.Pool, doSwitch chan<- struct{
 
 	if errorCount > 10 {
 		errorCount = 0
+		service.DebugF("Too many errors, gonna switch\n")
 		doSwitch <- struct{}{}
 	}
 }
