@@ -17,10 +17,10 @@ import (
 	"syscall"
 	"time"
 
+	proping "github.com/prometheus-community/pro-bing"
+
 	"naiveswitcher/service"
 	"naiveswitcher/util"
-
-	"github.com/go-ping/ping"
 )
 
 var (
@@ -197,9 +197,11 @@ func serveWeb() {
 					w.Write([]byte(err.Error()))
 					return
 				}
-				p := ping.New(u.Hostname())
+				p, pingErr := proping.NewPinger(u.Hostname())
 				p.Timeout = time.Second * 10
-				pingErr := p.Run()
+				if pingErr == nil {
+					pingErr = p.Run()
+				}
 				sb.WriteString(fmt.Sprintf("%s, avg: %v, err: %v\n", u.Hostname(), p.Statistics().AvgRtt, pingErr))
 			}(host)
 		}
