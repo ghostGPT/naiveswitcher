@@ -24,17 +24,19 @@ import (
 )
 
 var (
-	subscribeURL, listenPort, webPort string
-	fastestUrl                        string
-	hostUrls                          []string = []string{""}
-	naiveCmd                          *exec.Cmd
-	errorCount                        int
+	version string
 
-	version              string
-	autoSwitchDuration   int
-	dnsResolverIP        string  // Google DNS resolver.
-	dnsResolverProto     = "udp" // Protocol to use for the DNS resolver
-	dnsResolverTimeoutMs = 5000  // Timeout (ms) for the DNS resolver (optional)
+	subscribeURL, listenPort, webPort string
+	autoSwitchDuration                int
+	dnsResolverIP                     string  // Google DNS resolver.
+	dnsResolverProto                  = "udp" // Protocol to use for the DNS resolver
+	dnsResolverTimeoutMs              = 5000  // Timeout (ms) for the DNS resolver (optional)
+
+	errorCount         int
+	naiveCmd           *exec.Cmd
+	fastestUrl         string
+	hostUrls           []string = []string{""}
+	serverDownPriority          = make(map[string]int)
 )
 
 func init() {
@@ -86,7 +88,7 @@ func main() {
 	}
 
 	var err error
-	hostUrls, err = handleSwitch(hostUrls)
+	hostUrls, err = handleSwitch(hostUrls, false)
 	if err != nil {
 		panic(err)
 	}
@@ -98,7 +100,7 @@ func main() {
 
 	service.DebugF("Running with naive: %s\n", service.Naive)
 
-	doSwitch := make(chan struct{}, 1000)
+	doSwitch := make(chan bool, 1000)
 	doCheckNaiveUpdate := make(chan struct{}, 10)
 
 	go switcher(doSwitch)
@@ -109,7 +111,7 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(time.Duration(autoSwitchDuration) * time.Minute)
 		for range ticker.C {
-			doSwitch <- struct{}{}
+			doSwitch <- false
 			doCheckNaiveUpdate <- struct{}{}
 		}
 	}()
@@ -132,7 +134,7 @@ func main() {
 	println("Shutdown complete")
 }
 
-func serveTCP(l net.Listener, doSwitch chan<- struct{}) {
+func serveTCP(l net.Listener, doSwitch chan<- bool) {
 	bufPool := &sync.Pool{
 		New: func() interface{} {
 			return make([]byte, 32*1024)
@@ -211,10 +213,10 @@ func serveWeb() {
 	http.ListenAndServe(webPort, nil)
 }
 
-func switcher(doSwitch <-chan struct{}) {
+func switcher(doSwitch <-chan bool) {
 	var switching bool
 	var err error
-	for range doSwitch {
+	for isDown := range doSwitch {
 		if switching {
 			continue
 		}
@@ -225,7 +227,7 @@ func switcher(doSwitch <-chan struct{}) {
 				switching = false
 				service.DebugF("Switching done\n")
 			}()
-			hostUrls, err = handleSwitch(hostUrls)
+			hostUrls, err = handleSwitch(hostUrls, isDown)
 			if err != nil {
 				service.DebugF("Error switching: %v\n", err)
 			}
@@ -290,14 +292,22 @@ func updater(signal <-chan struct{}) {
 	}
 }
 
-func handleSwitch(oldHostUrls []string) ([]string, error) {
+func handleSwitch(oldHostUrls []string, isDown bool) ([]string, error) {
+	if isDown {
+		u, err := url.Parse(fastestUrl)
+		if err != nil {
+			return nil, err
+		}
+		serverDownPriority[u.Hostname()]++
+	}
+
 	hostUrls, err := service.Subscription(subscribeURL)
 	if err != nil {
 		service.DebugF("Error updating subscription: %v\n", err)
 		hostUrls = oldHostUrls
 	}
 
-	newFastestUrl, err := service.Fastest(hostUrls)
+	newFastestUrl, err := service.Fastest(hostUrls, serverDownPriority)
 	if err != nil {
 		service.DebugF("Error choosing fastest: %v\n", err)
 		return nil, err
@@ -329,16 +339,16 @@ func handleSwitch(oldHostUrls []string) ([]string, error) {
 	return hostUrls, nil
 }
 
-func handleConnection(conn net.Conn, bufPool *sync.Pool, doSwitch chan<- struct{}) {
+func handleConnection(conn net.Conn, bufPool *sync.Pool, doSwitch chan<- bool) {
 	defer conn.Close()
 
 	if naiveCmd == nil {
 		service.DebugF("No naive running\n")
-		doSwitch <- struct{}{}
+		doSwitch <- false
 		return
 	}
 
-	var serverDone bool = true
+	var serverDown bool = true
 	var remoteOk bool
 
 	naiveConn, err := net.Dial("tcp", service.UpstreamListenPort)
@@ -350,25 +360,24 @@ func handleConnection(conn net.Conn, bufPool *sync.Pool, doSwitch chan<- struct{
 		}()
 		buf := bufPool.Get()
 		written, _ := io.CopyBuffer(util.NewDowngradeReaderWriter(conn), util.NewDowngradeReaderWriter(naiveConn), buf.([]byte))
-		serverDone = isServerDone(int(written), buf.([]byte), remoteOk)
+		serverDown = isServerDown(int(written), buf.([]byte), remoteOk)
 		bufPool.Put(buf)
 	}
 
-	if serverDone {
-		// magic number for server connection error
-		errorCount++
-	} else {
-		errorCount = 0
+	if serverDown {
+		errorCount += 3
+	} else if errorCount > 0 {
+		errorCount--
 	}
 
-	if errorCount > 10 {
+	if errorCount > 30 {
 		errorCount = 0
 		service.DebugF("Too many errors, gonna switch\n")
-		doSwitch <- struct{}{}
+		doSwitch <- true
 	}
 }
 
-func isServerDone(written int, data []byte, remoteOk bool) bool {
+func isServerDown(written int, data []byte, remoteOk bool) bool {
 	if remoteOk {
 		return false
 	}

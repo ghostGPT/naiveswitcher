@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"sync"
 	"time"
 )
@@ -59,9 +60,9 @@ func Subscription(subscribeURL string) ([]string, error) {
 	return hostUrls, nil
 }
 
-func Fastest(hostUrls []string) (string, error) {
+func Fastest(hostUrls []string, serverPriority map[string]int) (string, error) {
 	type result struct {
-		host string
+		host *url.URL
 		err  error
 	}
 
@@ -75,24 +76,22 @@ func Fastest(hostUrls []string) (string, error) {
 	for _, host := range hostUrls {
 		go func(host string) {
 			var finalError error
+			var proxyUrl *url.URL
 
 			defer func() {
 				closeLock.Lock()
 				if !closed {
-					results <- result{host: host, err: finalError}
+					results <- result{host: proxyUrl, err: finalError}
 				}
 				closeLock.Unlock()
 			}()
 
-			proxyUrl, err := url.Parse(host)
-			if err != nil {
-				finalError = err
+			proxyUrl, finalError = url.Parse(host)
+			if finalError != nil {
 				return
 			}
-			proxyUrl.User = nil
-			proxyUrl.Path = "/1Mb.dat"
 
-			req, err := http.NewRequest("GET", proxyUrl.String(), nil)
+			req, err := http.NewRequest("GET", fmt.Sprintf("%s://%s/1Mb.dat", proxyUrl.Scheme, proxyUrl.Host), nil)
 			if err != nil {
 				finalError = err
 				return
@@ -112,24 +111,25 @@ func Fastest(hostUrls []string) (string, error) {
 				return
 			}
 
-			if len(body) < 200 {
+			if len(body) < 1024 {
 				finalError = fmt.Errorf("invalid response, status code: %d, body: %s", resp.StatusCode, string(body))
 				return
 			}
 		}(host)
 	}
 
-	var fastest string
-	for range hostUrls {
-		res := <-results
+	var fastest []*url.URL
+	var resultCount int
+	for res := range results {
+		resultCount++
 		if res.err != nil {
 			DebugF("check activity failed, host: %s, error: %s\n", res.host, res.err)
-			continue
+		} else {
+			fastest = append(fastest, res.host)
 		}
-		if fastest == "" {
-			fastest = res.host
+		if len(fastest) > 2 || resultCount >= len(hostUrls) {
+			break
 		}
-		break
 	}
 
 	closeLock.Lock()
@@ -137,9 +137,26 @@ func Fastest(hostUrls []string) (string, error) {
 	close(results)
 	closeLock.Unlock()
 
-	if fastest == "" {
+	if len(fastest) == 0 {
 		return "", fmt.Errorf("no valid hosts found")
 	}
 
-	return fastest, nil
+	slices.SortFunc(fastest, func(a, b *url.URL) int {
+		return serverPriority[a.Hostname()] - serverPriority[b.Hostname()]
+	})
+
+	// decrease all server priority by the minimum count
+	var minCount int
+	for _, v := range serverPriority {
+		if minCount == 0 || v < minCount {
+			minCount = v
+		}
+	}
+	if minCount > 0 {
+		for k := range serverPriority {
+			serverPriority[k] -= minCount
+		}
+	}
+
+	return fastest[0].String(), nil
 }
