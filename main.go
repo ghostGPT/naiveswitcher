@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"naiveswitcher/service"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,6 +15,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"naiveswitcher/service"
+	"naiveswitcher/util"
 )
 
 var (
@@ -313,7 +315,7 @@ func handleConnection(conn net.Conn, bufPool *sync.Pool, doSwitch chan<- struct{
 			remoteOk = e == nil
 		}()
 		buf := bufPool.Get()
-		written, _ := io.CopyBuffer(service.NewDowngradeReaderWriter(conn), service.NewDowngradeReaderWriter(naiveConn), buf.([]byte))
+		written, _ := io.CopyBuffer(util.NewDowngradeReaderWriter(conn), util.NewDowngradeReaderWriter(naiveConn), buf.([]byte))
 		serverDone = isServerDone(int(written), buf.([]byte), remoteOk)
 		bufPool.Put(buf)
 	}

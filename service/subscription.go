@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -90,22 +89,17 @@ func Fastest(hostUrls []string) (string, error) {
 				finalError = err
 				return
 			}
+			proxyUrl.User = nil
+			proxyUrl.Path = "/1Mb.dat"
 
-			proxiedClient := &http.Client{Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					MinVersion: tls.VersionTLS12,
-				},
-				Proxy: http.ProxyURL(proxyUrl)},
-			}
-
-			req, err := http.NewRequest("GET", fmt.Sprintf("%s://%s/1Mb.dat", proxyUrl.Scheme, proxyUrl.Host), nil)
+			req, err := http.NewRequest("GET", proxyUrl.String(), nil)
 			if err != nil {
 				finalError = err
 				return
 			}
 			req = req.WithContext(ctx)
 
-			resp, err := proxiedClient.Do(req)
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				finalError = err
 				return
