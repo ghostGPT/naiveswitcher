@@ -12,12 +12,15 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"naiveswitcher/service"
 	"naiveswitcher/util"
+
+	"github.com/go-ping/ping"
 )
 
 var (
@@ -160,19 +163,48 @@ func serveWeb() {
 			hostUrls = newHostUrls
 		}
 		w.Write([]byte(fmt.Sprintf("%d servers in pool\n", len(hostUrls))))
+		wg := new(sync.WaitGroup)
+		wg.Add(len(hostUrls))
+		sb := new(strings.Builder)
 		for _, host := range hostUrls {
-			u, err := url.Parse(host)
-			if err != nil {
-				w.Write([]byte(err.Error()))
-				return
-			}
-			ip, err := net.LookupIP(u.Hostname())
-			if err != nil {
-				w.Write([]byte(err.Error()))
-				return
-			}
-			w.Write([]byte(ip[0].String() + "\n"))
+			go func(host string) {
+				defer wg.Done()
+				u, err := url.Parse(host)
+				if err != nil {
+					w.Write([]byte(err.Error()))
+					return
+				}
+				ip, err := net.LookupIP(u.Hostname())
+				if err != nil {
+					w.Write([]byte(err.Error()))
+					return
+				}
+				sb.WriteString(ip[0].String() + "\n")
+			}(host)
 		}
+		wg.Wait()
+		w.Write([]byte(sb.String()))
+	})
+	http.HandleFunc("/p", func(w http.ResponseWriter, r *http.Request) {
+		sb := new(strings.Builder)
+		wg := new(sync.WaitGroup)
+		wg.Add(len(hostUrls))
+		for _, host := range hostUrls {
+			go func(host string) {
+				defer wg.Done()
+				u, err := url.Parse(host)
+				if err != nil {
+					w.Write([]byte(err.Error()))
+					return
+				}
+				p := ping.New(u.Hostname())
+				p.Timeout = time.Second * 10
+				pingErr := p.Run()
+				sb.WriteString(fmt.Sprintf("%s, avg: %v, err: %v\n", u.Hostname(), p.Statistics().AvgRtt, pingErr))
+			}(host)
+		}
+		wg.Wait()
+		w.Write([]byte(sb.String()))
 	})
 	http.ListenAndServe(webPort, nil)
 }

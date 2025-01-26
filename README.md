@@ -1,6 +1,6 @@
 # Naive Switcher
 
-## Folder Structure
+### Folder Structure
 
 ```shell
 |- path-to-naiveswitcher
@@ -8,7 +8,7 @@
    |- naiveproxy-v131.0.6778.86-1-mac-x64
 ```
 
-## Usage
+### Usage
 
 ```shell
 $ ./naiveswitcher -h
@@ -28,3 +28,10 @@ Usage of ./naiveswitcher:
   -w string
     	Web port (default "0.0.0.0:1081")
 ```
+
+### Web service
+
+- <http://localhost:1081> running status
+- <http://localhost:1081/p> server ping status
+- <http://localhost:1081/s> server count and ip list (bypass in rule)
+- <http://localhost:1081/v> switcher version
