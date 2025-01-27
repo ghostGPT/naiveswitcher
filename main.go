@@ -23,14 +23,17 @@ import (
 	"naiveswitcher/util"
 )
 
+const (
+	dnsResolverProto     = "udp" // Protocol to use for the DNS resolver
+	dnsResolverTimeoutMs = 5000  // Timeout (ms) for the DNS resolver (optional)
+)
+
 var (
 	version string
 
 	subscribeURL, listenPort, webPort string
 	autoSwitchDuration                int
-	dnsResolverIP                     string  // Google DNS resolver.
-	dnsResolverProto                  = "tcp" // Protocol to use for the DNS resolver
-	dnsResolverTimeoutMs              = 5000  // Timeout (ms) for the DNS resolver (optional)
+	dnsResolverIP                     string // Google DNS resolver.
 
 	errorCount         int
 	naiveCmd           *exec.Cmd
