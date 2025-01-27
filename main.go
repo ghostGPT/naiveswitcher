@@ -29,7 +29,7 @@ var (
 	subscribeURL, listenPort, webPort string
 	autoSwitchDuration                int
 	dnsResolverIP                     string  // Google DNS resolver.
-	dnsResolverProto                  = "udp" // Protocol to use for the DNS resolver
+	dnsResolverProto                  = "tcp" // Protocol to use for the DNS resolver
 	dnsResolverTimeoutMs              = 5000  // Timeout (ms) for the DNS resolver (optional)
 
 	errorCount         int
@@ -63,7 +63,7 @@ func main() {
 	flag.StringVar(&subscribeURL, "s", "https://example.com/sublink", "Subscribe to a URL")
 	flag.StringVar(&listenPort, "l", "0.0.0.0:1080", "Listen port")
 	flag.StringVar(&webPort, "w", "0.0.0.0:1081", "Web port")
-	flag.StringVar(&dnsResolverIP, "r", "8.8.4.4:53", "DNS resolver IP")
+	flag.StringVar(&dnsResolverIP, "r", "1.0.0.1:53", "DNS resolver IP")
 	flag.BoolVar(&service.Debug, "d", false, "Debug mode")
 	flag.IntVar(&autoSwitchDuration, "a", 30, "Auto switch fastest duration (minutes)")
 	flag.StringVar(&hostUrls[0], "b", "", "Bootup node (default naive node https://a:b@domain:port)")
@@ -155,7 +155,9 @@ func serveWeb() {
 		service.WriteLog(w)
 	})
 	http.HandleFunc("/v", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(version))
+		w.Write([]byte(fmt.Sprintf("Current: %s, ErrorCount: %d\n", fastestUrl, errorCount)))
+		w.Write([]byte(fmt.Sprintf("DownStat: %+v\n", serverDownPriority)))
+		w.Write([]byte("v" + version + "\n"))
 	})
 	http.HandleFunc("/s", func(w http.ResponseWriter, r *http.Request) {
 		newHostUrls, err := service.Subscription(subscribeURL)
@@ -221,10 +223,12 @@ func switcher(doSwitch <-chan bool) {
 			continue
 		}
 		switching = true
+		errorCount = 0
 		service.DebugF("Switching server...\n")
 		go func() {
 			defer func() {
 				switching = false
+				errorCount = 0
 				service.DebugF("Switching done\n")
 			}()
 			hostUrls, err = handleSwitch(hostUrls, isDown)
@@ -365,12 +369,12 @@ func handleConnection(conn net.Conn, bufPool *sync.Pool, doSwitch chan<- bool) {
 	}
 
 	if serverDown {
-		errorCount += 3
+		errorCount++
 	} else if errorCount > 0 {
 		errorCount--
 	}
 
-	if errorCount > 30 {
+	if errorCount > 10 {
 		errorCount = 0
 		service.DebugF("Too many errors, gonna switch\n")
 		doSwitch <- true
