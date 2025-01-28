@@ -154,6 +154,10 @@ func Fastest(hostUrls []string, serverPriority map[string]int) (string, error) {
 	}
 	if minCount > 0 {
 		for k := range serverPriority {
+			if serverPriority[k] < minCount {
+				serverPriority[k] = 0
+				continue
+			}
 			serverPriority[k] -= minCount
 		}
 	}
