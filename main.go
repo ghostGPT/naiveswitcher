@@ -314,7 +314,7 @@ func handleSwitch(oldHostUrls []string, isDown bool) ([]string, error) {
 		hostUrls = oldHostUrls
 	}
 
-	newFastestUrl, err := service.Fastest(hostUrls, serverDownPriority)
+	newFastestUrl, err := service.Fastest(hostUrls, serverDownPriority, isDown)
 	if err != nil {
 		service.DebugF("Error choosing fastest: %v\n", err)
 		return nil, err

@@ -60,7 +60,7 @@ func Subscription(subscribeURL string) ([]string, error) {
 	return hostUrls, nil
 }
 
-func Fastest(hostUrls []string, serverPriority map[string]int) (string, error) {
+func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (string, error) {
 	type result struct {
 		host *url.URL
 		err  error
@@ -144,6 +144,10 @@ func Fastest(hostUrls []string, serverPriority map[string]int) (string, error) {
 	slices.SortFunc(fastest, func(a, b *url.URL) int {
 		return serverPriority[a.Hostname()] - serverPriority[b.Hostname()]
 	})
+
+	if !isDown {
+		return fastest[0].String(), nil
+	}
 
 	// decrease all server priority by the minimum count
 	var minCount int
