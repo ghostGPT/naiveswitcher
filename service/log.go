@@ -17,7 +17,7 @@ func DebugF(format string, args ...interface{}) {
 	if !Debug {
 		return
 	}
-	format = fmt.Sprintf("[%s] %s", time.Now(), format)
+	format = fmt.Sprintf("[%s] %s", time.Now().In(time.Local).Format(time.DateTime), format)
 	logRWMutex.Lock()
 	defer logRWMutex.Unlock()
 	if logIndex == len(logCache) {

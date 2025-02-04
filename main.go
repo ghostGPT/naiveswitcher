@@ -93,7 +93,7 @@ func main() {
 	var err error
 	hostUrls, err = handleSwitch(hostUrls, false)
 	if err != nil {
-		panic(err)
+		println("Bootstrap error:", err.Error())
 	}
 
 	l, err := net.Listen("tcp", listenPort)
@@ -124,7 +124,7 @@ func main() {
 	defer stop()
 
 	go serveTCP(l, doSwitch)
-	go serveWeb()
+	go serveWeb(doSwitch)
 
 	<-ctx.Done()
 	println("Shutting down")
@@ -153,14 +153,23 @@ func serveTCP(l net.Listener, doSwitch chan<- bool) {
 	}
 }
 
-func serveWeb() {
+func serveWeb(doSwitch chan<- bool) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		service.WriteLog(w)
 	})
 	http.HandleFunc("/v", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(fmt.Sprintf("Current: %s, ErrorCount: %d\n", fastestUrl, errorCount)))
-		w.Write([]byte(fmt.Sprintf("DownStat: %+v\n", serverDownPriority)))
-		w.Write([]byte("v" + version + "\n"))
+		w.Header().Add("Content-Type", "text/html")
+		changeNode := r.URL.Query().Get("changeNode")
+		if changeNode == fastestUrl {
+			doSwitch <- true
+			w.Write([]byte(`Switching...<br>will redirect in 3 seconds<script>setTimeout(function(){window.location.href="/v"},3000)</script>`))
+			return
+		}
+		changeNodeHref := fmt.Sprintf(`<a href="/v?changeNode=%s">[Change]</a>`, url.QueryEscape(fastestUrl))
+		w.Write([]byte(fmt.Sprintf("Current: %s %s<br>", fastestUrl, changeNodeHref)))
+		w.Write([]byte(fmt.Sprintf("ErrorCount: %d<br>", errorCount)))
+		w.Write([]byte(fmt.Sprintf("DownStat: %+v<br>", serverDownPriority)))
+		w.Write([]byte("v" + version + "<br>"))
 	})
 	http.HandleFunc("/s", func(w http.ResponseWriter, r *http.Request) {
 		newHostUrls, err := service.Subscription(subscribeURL)
@@ -227,7 +236,7 @@ func switcher(doSwitch <-chan bool) {
 		}
 		switching = true
 		errorCount = 0
-		service.DebugF("Switching server...\n")
+		service.DebugF("isDown: %v, Switching server...\n", isDown)
 		go func() {
 			defer func() {
 				switching = false

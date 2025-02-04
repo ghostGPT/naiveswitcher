@@ -61,6 +61,10 @@ func Subscription(subscribeURL string) ([]string, error) {
 }
 
 func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (string, error) {
+	if len(hostUrls) == 0 {
+		return "", fmt.Errorf("no hosts")
+	}
+
 	type result struct {
 		host *url.URL
 		err  error
@@ -156,7 +160,7 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 			minCount = v
 		}
 	}
-	if minCount > 0 {
+	if minCount > 100 {
 		for k := range serverPriority {
 			if serverPriority[k] <= minCount {
 				delete(serverPriority, k)

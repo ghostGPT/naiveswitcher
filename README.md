@@ -31,7 +31,7 @@ Usage of ./naiveswitcher:
 
 ### Web service
 
-- <http://localhost:1081> running status
+- <http://localhost:1081> running log
 - <http://localhost:1081/p> server ping status
 - <http://localhost:1081/s> server count and ip list (bypass in rule)
-- <http://localhost:1081/v> switcher version
+- <http://localhost:1081/v> view & change current server

@@ -8,6 +8,6 @@ type DowngradeReaderWriter struct {
 	io.ReadWriteCloser
 }
 
-func NewDowngradeReaderWriter(rwc io.ReadWriteCloser) DowngradeReaderWriter {
-	return DowngradeReaderWriter{ReadWriteCloser: rwc}
+func NewDowngradeReaderWriter(rwc io.ReadWriteCloser) *DowngradeReaderWriter {
+	return &DowngradeReaderWriter{ReadWriteCloser: rwc}
 }
