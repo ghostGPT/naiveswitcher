@@ -77,6 +77,8 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 	closeLock := new(sync.Mutex)
 	var closed bool
 
+	aliveHosts := new(sync.Map)
+
 	for _, host := range hostUrls {
 		go func(host string) {
 			var finalError error
@@ -94,6 +96,8 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 			if finalError != nil {
 				return
 			}
+
+			aliveHosts.Store(proxyUrl.Hostname(), struct{}{})
 
 			req, err := http.NewRequest("GET", fmt.Sprintf("%s://%s/1Mb.dat", proxyUrl.Scheme, proxyUrl.Host), nil)
 			if err != nil {
@@ -155,7 +159,10 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 
 	// decrease all server priority by the minimum count
 	var minCount int
-	for _, v := range serverPriority {
+	for k, v := range serverPriority {
+		if _, has := aliveHosts.Load(k); !has {
+			delete(serverPriority, k)
+		}
 		if minCount == 0 || v < minCount {
 			minCount = v
 		}
