@@ -6,8 +6,13 @@ import (
 	"sync"
 )
 
-func BatchLookupURLsIP(hostUrls []string) map[string][]string {
-	hostIps := make(map[string][]string)
+type HostIps struct {
+	URL string
+	IPs []string
+}
+
+func BatchLookupURLsIP(hostUrls []string) map[string]HostIps {
+	hostIps := make(map[string]HostIps)
 	ihLock := new(sync.Mutex)
 
 	wg := new(sync.WaitGroup)
@@ -29,14 +34,29 @@ func BatchLookupURLsIP(hostUrls []string) map[string][]string {
 			if len(ip) == 0 {
 				return
 			}
+			var ips []string
+			for _, ipAddr := range ip {
+				ips = append(ips, ipAddr.String())
+			}
 			ihLock.Lock()
 			defer ihLock.Unlock()
-			for _, ipAddr := range ip {
-				hostIps[u.Hostname()] = append(hostIps[u.Hostname()], ipAddr.String())
+			hostIps[u.Hostname()] = HostIps{
+				URL: host,
+				IPs: ips,
 			}
 		}(host)
 	}
 	wg.Wait()
 
 	return hostIps
+}
+
+func UniqueIPs(hostIps map[string]HostIps) map[string][]string {
+	hosts := make(map[string][]string)
+	for host, hostIp := range hostIps {
+		for _, ip := range hostIp.IPs {
+			hosts[ip] = append(hosts[ip], host)
+		}
+	}
+	return hosts
 }

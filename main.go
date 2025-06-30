@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -182,36 +183,35 @@ func serveWeb(doSwitch chan<- bool) {
 		hostIps := util.BatchLookupURLsIP(hostUrls)
 
 		for host, ips := range hostIps {
-			w.Write([]byte(fmt.Sprintf("%s: %+v\n", host, ips)))
+			w.Write([]byte(fmt.Sprintf("%s: %+v\n", host, ips.IPs)))
 		}
 
 		w.Write([]byte("\n\n\n"))
 
-		for _, ips := range hostIps {
-			if len(ips) == 0 {
-				continue
-			}
-			w.Write([]byte(fmt.Sprintf("%s\n", strings.Join(ips, "\n"))))
+		uniqueIPs := util.UniqueIPs(hostIps)
+		for ip := range uniqueIPs {
+			w.Write([]byte(fmt.Sprintf("%s\n", ip)))
 		}
 	})
 	http.HandleFunc("/p", func(w http.ResponseWriter, r *http.Request) {
+		hostIps := util.BatchLookupURLsIP(hostUrls)
+		uniqueIps := util.UniqueIPs(hostIps)
+		uniqueHosts := make(map[string]struct{})
+		for _, hosts := range uniqueIps {
+			uniqueHosts[hosts[rand.Intn(len(hosts))]] = struct{}{}
+		}
 		sb := new(strings.Builder)
 		wg := new(sync.WaitGroup)
-		wg.Add(len(hostUrls))
-		for _, host := range hostUrls {
+		wg.Add(len(uniqueHosts))
+		for host := range uniqueHosts {
 			go func(host string) {
 				defer wg.Done()
-				u, err := url.Parse(host)
-				if err != nil {
-					w.Write([]byte(err.Error()))
-					return
-				}
-				p, pingErr := proping.NewPinger(u.Hostname())
+				p, pingErr := proping.NewPinger(host)
 				p.Timeout = time.Second * 10
 				if pingErr == nil {
 					pingErr = p.Run()
 				}
-				sb.WriteString(fmt.Sprintf("%s, avg: %v, err: %v\n", u.Hostname(), p.Statistics().AvgRtt, pingErr))
+				sb.WriteString(fmt.Sprintf("%s, avg: %v, err: %v\n", host, p.Statistics().AvgRtt, pingErr))
 			}(host)
 		}
 		wg.Wait()

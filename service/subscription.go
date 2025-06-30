@@ -69,12 +69,12 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 	}
 
 	hostIps := util.BatchLookupURLsIP(hostUrls)
-	ipHostMap := make(map[string][]string)
-	for host, ips := range hostIps {
-		if len(ips) == 0 {
+	ipHostMap := make(map[string][]util.HostIps)
+	for _, ips := range hostIps {
+		if len(ips.IPs) == 0 {
 			continue
 		}
-		ipHostMap[ips[0]] = append(ipHostMap[ips[0]], host)
+		ipHostMap[ips.IPs[0]] = append(ipHostMap[ips.IPs[0]], ips)
 	}
 
 	type result struct {
@@ -85,7 +85,7 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	results := make(chan result, len(hostUrls))
+	results := make(chan result, len(ipHostMap))
 	closeLock := new(sync.Mutex)
 	var closed bool
 
@@ -94,9 +94,9 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 	for _, hosts := range ipHostMap {
 		var host string
 		if len(hosts) == 1 {
-			host = hosts[0]
+			host = hosts[0].URL
 		} else {
-			host = hosts[rand.Intn(len(hosts))]
+			host = hosts[rand.Intn(len(hosts))].URL
 		}
 		go func(host string) {
 			var finalError error
