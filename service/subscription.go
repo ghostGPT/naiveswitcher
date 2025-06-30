@@ -7,11 +7,14 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"slices"
 	"sync"
 	"time"
+
+	"naiveswitcher/util"
 )
 
 func Subscription(subscribeURL string) ([]string, error) {
@@ -65,6 +68,15 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 		return "", fmt.Errorf("no hosts")
 	}
 
+	hostIps := util.BatchLookupURLsIP(hostUrls)
+	ipHostMap := make(map[string][]string)
+	for host, ips := range hostIps {
+		if len(ips) == 0 {
+			continue
+		}
+		ipHostMap[ips[0]] = append(ipHostMap[ips[0]], host)
+	}
+
 	type result struct {
 		host *url.URL
 		err  error
@@ -79,7 +91,13 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 
 	aliveHosts := new(sync.Map)
 
-	for _, host := range hostUrls {
+	for _, hosts := range ipHostMap {
+		var host string
+		if len(hosts) == 1 {
+			host = hosts[0]
+		} else {
+			host = hosts[rand.Intn(len(hosts))]
+		}
 		go func(host string) {
 			var finalError error
 			var proxyUrl *url.URL

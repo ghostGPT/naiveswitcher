@@ -179,27 +179,20 @@ func serveWeb(doSwitch chan<- bool) {
 			hostUrls = newHostUrls
 		}
 		w.Write([]byte(fmt.Sprintf("%d servers in pool\n", len(hostUrls))))
-		wg := new(sync.WaitGroup)
-		wg.Add(len(hostUrls))
-		sb := new(strings.Builder)
-		for _, host := range hostUrls {
-			go func(host string) {
-				defer wg.Done()
-				u, err := url.Parse(host)
-				if err != nil {
-					w.Write([]byte(err.Error()))
-					return
-				}
-				ip, err := net.LookupIP(u.Hostname())
-				if err != nil {
-					w.Write([]byte(err.Error()))
-					return
-				}
-				sb.WriteString(ip[0].String() + "\n")
-			}(host)
+		hostIps := util.BatchLookupURLsIP(hostUrls)
+
+		for host, ips := range hostIps {
+			w.Write([]byte(fmt.Sprintf("%s: %+v\n", host, ips)))
 		}
-		wg.Wait()
-		w.Write([]byte(sb.String()))
+
+		w.Write([]byte("\n\n\n"))
+
+		for _, ips := range hostIps {
+			if len(ips) == 0 {
+				continue
+			}
+			w.Write([]byte(fmt.Sprintf("%s\n", strings.Join(ips, "\n"))))
+		}
 	})
 	http.HandleFunc("/p", func(w http.ResponseWriter, r *http.Request) {
 		sb := new(strings.Builder)
