@@ -64,10 +64,6 @@ func Subscription(subscribeURL string) ([]string, error) {
 }
 
 func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (string, error) {
-	if len(hostUrls) == 0 {
-		return "", fmt.Errorf("no hosts")
-	}
-
 	hostIps := util.BatchLookupURLsIP(hostUrls)
 	ipHostMap := make(map[string][]util.HostIps)
 	for _, ips := range hostIps {
@@ -75,6 +71,10 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 			continue
 		}
 		ipHostMap[ips.IPs[0]] = append(ipHostMap[ips.IPs[0]], ips)
+	}
+
+	if len(ipHostMap) == 0 {
+		return "", fmt.Errorf("no hosts")
 	}
 
 	type result struct {
@@ -153,7 +153,7 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 		} else {
 			fastest = append(fastest, res.host)
 		}
-		if len(fastest) > 2 || resultCount >= len(hostUrls) {
+		if len(fastest) > 2 || resultCount >= len(ipHostMap) {
 			break
 		}
 	}
