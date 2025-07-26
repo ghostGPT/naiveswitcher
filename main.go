@@ -37,12 +37,14 @@ var (
 	subscribeURL, listenPort, webPort string
 	autoSwitchDuration                int
 	dnsResolverIP                     string // Google DNS resolver.
+	bootstrapNode                     string
 
 	errorCount         int
 	naiveCmd           *exec.Cmd
 	fastestUrl         string
-	hostUrls           []string = []string{""}
-	serverDownPriority          = make(map[string]int)
+	hostUrls           []string
+	serverDownPriority = make(map[string]int)
+	gracefulShutdown   context.CancelFunc
 )
 
 func init() {
@@ -72,7 +74,7 @@ func main() {
 	flag.StringVar(&dnsResolverIP, "r", "1.0.0.1:53", "DNS resolver IP")
 	flag.BoolVar(&service.Debug, "d", false, "Debug mode")
 	flag.IntVar(&autoSwitchDuration, "a", 30, "Auto switch fastest duration (minutes)")
-	flag.StringVar(&hostUrls[0], "b", "", "Bootup node (default naive node https://a:b@domain:port)")
+	flag.StringVar(&bootstrapNode, "b", "", "Bootup node (default naive node https://a:b@domain:port)")
 	flag.BoolVar(&showVersion, "v", false, "Show version")
 	flag.Parse()
 
@@ -94,6 +96,9 @@ func main() {
 	}
 
 	var err error
+	if len(hostUrls) == 0 {
+		hostUrls = append(hostUrls, bootstrapNode)
+	}
 	hostUrls, err = handleSwitch(hostUrls, "")
 	if err != nil {
 		println("Bootstrap error:", err.Error())
@@ -107,27 +112,29 @@ func main() {
 	service.DebugF("Running with naive: %s\n", service.Naive)
 
 	doSwitch := make(chan string, 100)
-	doCheckNaiveUpdate := make(chan struct{}, 10)
+	doCheckUpdate := make(chan struct{}, 10)
 
 	go switcher(doSwitch)
-	go updater(doCheckNaiveUpdate)
+	go updater(doCheckUpdate)
 
-	doCheckNaiveUpdate <- struct{}{}
+	doCheckUpdate <- struct{}{}
 
 	go func() {
 		ticker := time.NewTicker(time.Duration(autoSwitchDuration) * time.Minute)
 		for range ticker.C {
 			doSwitch <- ""
-			doCheckNaiveUpdate <- struct{}{}
+			doCheckUpdate <- struct{}{}
 		}
 	}()
 
 	// graceful shutdown
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	var ctxWithCalcel context.Context
+	ctxWithCalcel, gracefulShutdown = context.WithCancel(context.Background())
+	ctx, stop := signal.NotifyContext(ctxWithCalcel, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	go serveTCP(l, doSwitch)
-	go serveWeb(doSwitch)
+	go serveWeb(doSwitch, doCheckUpdate)
 
 	<-ctx.Done()
 	println("Shutting down")
@@ -156,7 +163,7 @@ func serveTCP(l net.Listener, doSwitch chan<- string) {
 	}
 }
 
-func serveWeb(doSwitch chan<- string) {
+func serveWeb(doSwitch chan<- string, doCheckUpdate chan<- struct{}) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		service.WriteLog(w)
 	})
@@ -168,11 +175,19 @@ func serveWeb(doSwitch chan<- string) {
 			w.Write([]byte(`Switching...<br>will redirect in 3 seconds<script>setTimeout(function(){window.location.href="/v"},3000)</script>`))
 			return
 		}
+		if r.URL.Query().Get("checkUpdate") == "true" {
+			doCheckUpdate <- struct{}{}
+			w.Write([]byte("Checking for updates...<br>will redirect in 3 seconds<script>setTimeout(function(){window.location.href=\"/v\"},3000)</script>"))
+			return
+		}
 		changeNodeHref := fmt.Sprintf(`<a href="/v?changeNode=%s">[Change]</a>`, url.QueryEscape(fastestUrl))
 		w.Write([]byte(fmt.Sprintf("Current: %s %s<br>", fastestUrl, changeNodeHref)))
 		w.Write([]byte(fmt.Sprintf("ErrorCount: %d<br>", errorCount)))
 		w.Write([]byte(fmt.Sprintf("DownStat: %+v<br>", serverDownPriority)))
-		w.Write([]byte("v" + version + "<br>"))
+		w.Write([]byte("<br>"))
+		w.Write([]byte("naive v" + service.Naive + "<br>"))
+		w.Write([]byte("naiveswitcher v" + version + "<br>"))
+		w.Write([]byte("<a href=\"/v?checkUpdate=true\">[Check Update]</a><br>"))
 	})
 	http.HandleFunc("/s", func(w http.ResponseWriter, r *http.Request) {
 		newHostUrls, err := service.Subscription(subscribeURL)
@@ -238,6 +253,9 @@ func switcher(doSwitch <-chan string) {
 				errorCount = 0
 				service.DebugF("Switching done\n")
 			}()
+			if len(hostUrls) == 0 {
+				hostUrls = append(hostUrls, bootstrapNode)
+			}
 			hostUrls, err = handleSwitch(hostUrls, isDown)
 			if err != nil {
 				service.DebugF("Error switching: %v\n", err)
@@ -313,7 +331,7 @@ func updater(signal <-chan struct{}) {
 			} else {
 				service.DebugF("Successfully updated to version", latest.Version)
 				service.DebugF("Release note:\n", latest.ReleaseNotes)
-				os.Exit(0)
+				gracefulShutdown()
 			}
 		}()
 	}
