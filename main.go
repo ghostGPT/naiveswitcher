@@ -18,7 +18,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/blang/semver"
 	proping "github.com/prometheus-community/pro-bing"
+	"github.com/rhysd/go-github-selfupdate/selfupdate"
 
 	"naiveswitcher/service"
 	"naiveswitcher/util"
@@ -92,7 +94,7 @@ func main() {
 	}
 
 	var err error
-	hostUrls, err = handleSwitch(hostUrls, false)
+	hostUrls, err = handleSwitch(hostUrls, "")
 	if err != nil {
 		println("Bootstrap error:", err.Error())
 	}
@@ -104,7 +106,7 @@ func main() {
 
 	service.DebugF("Running with naive: %s\n", service.Naive)
 
-	doSwitch := make(chan bool, 1000)
+	doSwitch := make(chan string, 100)
 	doCheckNaiveUpdate := make(chan struct{}, 10)
 
 	go switcher(doSwitch)
@@ -115,7 +117,7 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(time.Duration(autoSwitchDuration) * time.Minute)
 		for range ticker.C {
-			doSwitch <- false
+			doSwitch <- ""
 			doCheckNaiveUpdate <- struct{}{}
 		}
 	}()
@@ -138,7 +140,7 @@ func main() {
 	println("Shutdown complete")
 }
 
-func serveTCP(l net.Listener, doSwitch chan<- bool) {
+func serveTCP(l net.Listener, doSwitch chan<- string) {
 	bufPool := &sync.Pool{
 		New: func() interface{} {
 			return make([]byte, 32*1024)
@@ -154,7 +156,7 @@ func serveTCP(l net.Listener, doSwitch chan<- bool) {
 	}
 }
 
-func serveWeb(doSwitch chan<- bool) {
+func serveWeb(doSwitch chan<- string) {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		service.WriteLog(w)
 	})
@@ -162,7 +164,7 @@ func serveWeb(doSwitch chan<- bool) {
 		w.Header().Add("Content-Type", "text/html")
 		changeNode := r.URL.Query().Get("changeNode")
 		if changeNode == fastestUrl {
-			doSwitch <- true
+			doSwitch <- changeNode
 			w.Write([]byte(`Switching...<br>will redirect in 3 seconds<script>setTimeout(function(){window.location.href="/v"},3000)</script>`))
 			return
 		}
@@ -220,7 +222,7 @@ func serveWeb(doSwitch chan<- bool) {
 	http.ListenAndServe(webPort, nil)
 }
 
-func switcher(doSwitch <-chan bool) {
+func switcher(doSwitch <-chan string) {
 	var switching bool
 	var err error
 	for isDown := range doSwitch {
@@ -298,17 +300,31 @@ func updater(signal <-chan struct{}) {
 
 			service.DebugF("Updated to %s\n", service.Naive)
 		}()
+
+		go func() {
+			v := semver.MustParse(version)
+			latest, err := selfupdate.UpdateSelf(v, "ghostGPT/naiveswitcher")
+			if err != nil {
+				service.DebugF("Binary update failed: %v", err)
+				return
+			}
+			if latest.Version.Equals(v) {
+				service.DebugF("Current binary is the latest version", version)
+			} else {
+				service.DebugF("Successfully updated to version", latest.Version)
+				service.DebugF("Release note:\n", latest.ReleaseNotes)
+				os.Exit(0)
+			}
+		}()
 	}
 }
 
-func handleSwitch(oldHostUrls []string, isDown bool) ([]string, error) {
-	if isDown {
-		u, err := url.Parse(fastestUrl)
-		if err != nil {
-			return nil, err
-		}
-		serverDownPriority[u.Hostname()]++
+func handleSwitch(oldHostUrls []string, downServer string) ([]string, error) {
+	u, err := url.Parse(downServer)
+	if err != nil {
+		return nil, err
 	}
+	serverDownPriority[u.Hostname()]++
 
 	hostUrls, err := service.Subscription(subscribeURL)
 	if err != nil {
@@ -316,7 +332,7 @@ func handleSwitch(oldHostUrls []string, isDown bool) ([]string, error) {
 		hostUrls = oldHostUrls
 	}
 
-	newFastestUrl, err := service.Fastest(hostUrls, serverDownPriority, isDown)
+	newFastestUrl, err := service.Fastest(hostUrls, serverDownPriority, downServer)
 	if err != nil {
 		service.DebugF("Error choosing fastest: %v\n", err)
 		return nil, err
@@ -348,20 +364,24 @@ func handleSwitch(oldHostUrls []string, isDown bool) ([]string, error) {
 	return hostUrls, nil
 }
 
-func handleConnection(conn net.Conn, bufPool *sync.Pool, doSwitch chan<- bool) {
+func handleConnection(conn net.Conn, bufPool *sync.Pool, doSwitch chan<- string) {
 	defer conn.Close()
 
 	if naiveCmd == nil {
 		service.DebugF("No naive running\n")
-		doSwitch <- false
+		doSwitch <- ""
 		return
 	}
 
 	var serverDown bool = true
 	var remoteOk bool
 
-	naiveConn, err := net.Dial("tcp", service.UpstreamListenPort)
+	naiveConn, err := net.DialTimeout("tcp", service.UpstreamListenPort, 3*time.Second)
 	if err == nil {
+		if tcpConn, ok := naiveConn.(*net.TCPConn); ok {
+			tcpConn.SetKeepAlive(true)
+			tcpConn.SetKeepAlivePeriod(2 * time.Minute)
+		}
 		go func() {
 			defer naiveConn.Close()
 			_, e := io.Copy(naiveConn, conn)
@@ -382,8 +402,14 @@ func handleConnection(conn net.Conn, bufPool *sync.Pool, doSwitch chan<- bool) {
 	if errorCount > 10 {
 		errorCount = 0
 		service.DebugF("Too many errors, gonna switch\n")
-		doSwitch <- true
+		doSwitch <- fastestUrl
 	}
+}
+
+var DataServerDown = map[[12]byte]struct{}{
+	{
+		5, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+	}: {},
 }
 
 func isServerDown(written int, data []byte, remoteOk bool) bool {
@@ -393,21 +419,8 @@ func isServerDown(written int, data []byte, remoteOk bool) bool {
 	if written != 12 {
 		return false
 	}
-	for i, v := range data[:12] {
-		switch i {
-		case 0:
-			if v != 5 {
-				return false
-			}
-		case 3:
-			if v != 1 {
-				return false
-			}
-		default:
-			if v != 0 {
-				return false
-			}
-		}
-	}
-	return true
+	var key [12]byte
+	copy(key[:], data[:12])
+	_, isDown := DataServerDown[key]
+	return isDown
 }

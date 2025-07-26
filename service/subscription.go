@@ -63,7 +63,7 @@ func Subscription(subscribeURL string) ([]string, error) {
 	return hostUrls, nil
 }
 
-func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (string, error) {
+func Fastest(hostUrls []string, serverPriority map[string]int, downServer string) (string, error) {
 	hostIps := util.BatchLookupURLsIP(hostUrls)
 	ipHostMap := make(map[string][]util.HostIps)
 	for _, ips := range hostIps {
@@ -92,11 +92,18 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 	aliveHosts := new(sync.Map)
 
 	for _, hosts := range ipHostMap {
-		var host string
+		var u string
 		if len(hosts) == 1 {
-			host = hosts[0].URL
+			u = hosts[0].URL
+			if u == downServer {
+				continue
+			}
 		} else {
-			host = hosts[rand.Intn(len(hosts))].URL
+		RE_RAND:
+			u = hosts[rand.Intn(len(hosts))].URL
+			if u == downServer {
+				goto RE_RAND
+			}
 		}
 		go func(host string) {
 			var finalError error
@@ -141,7 +148,7 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 				finalError = fmt.Errorf("invalid response, status code: %d, body: %s", resp.StatusCode, string(body))
 				return
 			}
-		}(host)
+		}(u)
 	}
 
 	var fastest []*url.URL
@@ -171,7 +178,7 @@ func Fastest(hostUrls []string, serverPriority map[string]int, isDown bool) (str
 		return serverPriority[a.Hostname()] - serverPriority[b.Hostname()]
 	})
 
-	if !isDown {
+	if downServer == "" {
 		return fastest[0].String(), nil
 	}
 
