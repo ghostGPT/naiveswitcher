@@ -63,7 +63,7 @@ func Subscription(subscribeURL string) ([]string, error) {
 	return hostUrls, nil
 }
 
-func Fastest(hostUrls []string, serverPriority map[string]int, downServer string) (string, error) {
+func Fastest(hostUrls []string, serverPriority map[string]int, deadServer string) (string, error) {
 	hostIps := util.BatchLookupURLsIP(hostUrls)
 	ipHostMap := make(map[string][]util.HostIps)
 	for _, ips := range hostIps {
@@ -95,13 +95,10 @@ func Fastest(hostUrls []string, serverPriority map[string]int, downServer string
 		var u string
 		if len(hosts) == 1 {
 			u = hosts[0].URL
-			if u == downServer {
-				continue
-			}
 		} else {
 		RE_RAND:
 			u = hosts[rand.Intn(len(hosts))].URL
-			if u == downServer {
+			if u == deadServer {
 				goto RE_RAND
 			}
 		}
@@ -178,11 +175,6 @@ func Fastest(hostUrls []string, serverPriority map[string]int, downServer string
 		return serverPriority[a.Hostname()] - serverPriority[b.Hostname()]
 	})
 
-	if downServer == "" {
-		return fastest[0].String(), nil
-	}
-
-	// decrease all server priority by the minimum count
 	var minCount int
 	for k, v := range serverPriority {
 		if _, has := aliveHosts.Load(k); !has {
@@ -202,5 +194,15 @@ func Fastest(hostUrls []string, serverPriority map[string]int, downServer string
 		}
 	}
 
+	if deadServer == "" || len(fastest) == 1 {
+		return fastest[0].String(), nil
+	}
+	deadServerUrl, err := url.Parse(deadServer)
+	if err != nil {
+		return fastest[0].String(), nil
+	}
+	if deadServerUrl.Hostname() == fastest[0].Hostname() {
+		return fastest[1].String(), nil
+	}
 	return fastest[0].String(), nil
 }

@@ -241,13 +241,13 @@ func serveWeb(doSwitch chan<- string, doCheckUpdate chan<- struct{}) {
 func switcher(doSwitch <-chan string) {
 	var switching bool
 	var err error
-	for isDown := range doSwitch {
+	for deadServer := range doSwitch {
 		if switching {
 			continue
 		}
 		switching = true
 		errorCount = 0
-		service.DebugF("isDown: %v, Switching server...\n", isDown)
+		service.DebugF("isDown: %v, Switching server...\n", deadServer)
 		go func() {
 			defer func() {
 				switching = false
@@ -257,7 +257,7 @@ func switcher(doSwitch <-chan string) {
 			if len(hostUrls) == 0 {
 				hostUrls = append(hostUrls, bootstrapNode)
 			}
-			hostUrls, err = handleSwitch(hostUrls, isDown)
+			hostUrls, err = handleSwitch(hostUrls, deadServer)
 			if err != nil {
 				service.DebugF("Error switching: %v\n", err)
 			}
@@ -341,8 +341,8 @@ func updater(signal <-chan struct{}) {
 	}
 }
 
-func handleSwitch(oldHostUrls []string, downServer string) ([]string, error) {
-	u, err := url.Parse(downServer)
+func handleSwitch(oldHostUrls []string, deadServer string) ([]string, error) {
+	u, err := url.Parse(deadServer)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +354,7 @@ func handleSwitch(oldHostUrls []string, downServer string) ([]string, error) {
 		hostUrls = oldHostUrls
 	}
 
-	newFastestUrl, err := service.Fastest(hostUrls, serverDownPriority, downServer)
+	newFastestUrl, err := service.Fastest(hostUrls, serverDownPriority, deadServer)
 	if err != nil {
 		service.DebugF("Error choosing fastest: %v\n", err)
 		return nil, err

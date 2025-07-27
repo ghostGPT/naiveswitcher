@@ -17,10 +17,10 @@ func BatchLookupURLsIP(hostUrls []string) map[string]HostIps {
 
 	wg := new(sync.WaitGroup)
 	wg.Add(len(hostUrls))
-	for _, host := range hostUrls {
-		go func(host string) {
+	for _, hostUrl := range hostUrls {
+		go func(_hostUrl string) {
 			defer wg.Done()
-			u, err := url.Parse(host)
+			u, err := url.Parse(_hostUrl)
 			if err != nil {
 				return
 			}
@@ -41,10 +41,10 @@ func BatchLookupURLsIP(hostUrls []string) map[string]HostIps {
 			ihLock.Lock()
 			defer ihLock.Unlock()
 			hostIps[u.Hostname()] = HostIps{
-				URL: host,
+				URL: _hostUrl,
 				IPs: ips,
 			}
-		}(host)
+		}(hostUrl)
 	}
 	wg.Wait()
 
