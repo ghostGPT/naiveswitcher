@@ -41,6 +41,7 @@ var (
 
 	errorCount         int
 	naiveCmd           *exec.Cmd
+	naiveCmdLock       sync.Mutex
 	fastestUrl         string
 	hostUrls           []string
 	serverDownPriority = make(map[string]int)
@@ -295,6 +296,9 @@ func updater(signal <-chan struct{}) {
 				return
 			}
 
+			naiveCmdLock.Lock()
+			defer naiveCmdLock.Unlock()
+
 			if naiveCmd != nil {
 				if err := naiveCmd.Process.Kill(); err != nil {
 					service.DebugF("Error killing naive: %v\n", err)
@@ -360,6 +364,9 @@ func handleSwitch(oldHostUrls []string, downServer string) ([]string, error) {
 	}
 	fastestUrl = newFastestUrl
 	service.DebugF("Fastest: %s\n", fastestUrl)
+
+	naiveCmdLock.Lock()
+	defer naiveCmdLock.Unlock()
 
 	if naiveCmd != nil {
 		if err := naiveCmd.Process.Kill(); err != nil {
