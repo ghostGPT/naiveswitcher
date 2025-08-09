@@ -1,6 +1,7 @@
 package types
 
 import (
+	"context"
 	"os/exec"
 	"sync"
 )
@@ -34,4 +35,5 @@ type GlobalState struct {
 	ServerDownPriority map[string]int
 	AutoSwitchPaused   bool
 	AutoSwitchMutex    sync.RWMutex
+	AppContext         context.Context // 应用程序上下文，用于控制进程启动
 }

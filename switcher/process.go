@@ -2,16 +2,13 @@ package switcher
 
 import (
 	"errors"
-	"naiveswitcher/service"
+
 	"naiveswitcher/internal/types"
+	"naiveswitcher/service"
 )
 
-// RestartNaive 重启 naive 进程到指定服务器
-func RestartNaive(state *types.GlobalState, targetServer string) error {
-	state.NaiveCmdLock.Lock()
-	defer state.NaiveCmdLock.Unlock()
-
-	// 停止当前进程
+// StopNaive 安全地停止 naive 进程（需要外部已获取锁）
+func stopNaiveUnsafe(state *types.GlobalState) {
 	if state.NaiveCmd != nil {
 		if err := state.NaiveCmd.Process.Kill(); err != nil {
 			service.DebugF("Error killing naive: %v\n", err)
@@ -19,8 +16,19 @@ func RestartNaive(state *types.GlobalState, targetServer string) error {
 		state.NaiveCmd.Wait()
 		state.NaiveCmd = nil
 	}
+}
 
-	// 启动新进程
+// StartNaive 安全地启动 naive 进程（需要外部已获取锁）
+func startNaiveUnsafe(state *types.GlobalState, targetServer string) error {
+	// 检查应用程序上下文是否已经取消
+	select {
+	case <-state.AppContext.Done():
+		service.DebugF("Application is shutting down, not starting naive process\n")
+		return nil // 不启动新进程，但不返回错误
+	default:
+		// 继续启动进程
+	}
+
 	var err error
 	state.NaiveCmd, err = service.NaiveCmd(targetServer)
 	if err != nil {
@@ -31,8 +39,20 @@ func RestartNaive(state *types.GlobalState, targetServer string) error {
 		service.DebugF("Error starting naive: %v\n", err)
 		return err
 	}
-
+	service.DebugF("Successfully started naive process for server: %s\n", targetServer)
 	return nil
+}
+
+// RestartNaive 重启 naive 进程到指定服务器
+func RestartNaive(state *types.GlobalState, targetServer string) error {
+	state.NaiveCmdLock.Lock()
+	defer state.NaiveCmdLock.Unlock()
+
+	// 停止当前进程
+	stopNaiveUnsafe(state)
+
+	// 启动新进程
+	return startNaiveUnsafe(state, targetServer)
 }
 
 // ProcessSelectRequest 处理直接选择服务器的请求

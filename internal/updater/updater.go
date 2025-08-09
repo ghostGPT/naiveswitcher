@@ -9,9 +9,8 @@ import (
 	"github.com/rhysd/go-github-selfupdate/selfupdate"
 
 	"naiveswitcher/internal/config"
-	"naiveswitcher/service"
-	"naiveswitcher/switcher"
 	"naiveswitcher/internal/types"
+	"naiveswitcher/service"
 )
 
 // Updater 处理更新检查
@@ -46,8 +45,11 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 				return
 			}
 
-			// 停止当前进程并更新二进制文件
+			// 原子性地停止旧进程、更新二进制文件并启动新进程
 			state.NaiveCmdLock.Lock()
+			defer state.NaiveCmdLock.Unlock()
+
+			// 1. 停止当前进程
 			if state.NaiveCmd != nil {
 				if err := state.NaiveCmd.Process.Kill(); err != nil {
 					service.DebugF("Error killing naive: %v\n", err)
@@ -55,17 +57,28 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 				state.NaiveCmd.Wait()
 				state.NaiveCmd = nil
 			}
-			state.NaiveCmdLock.Unlock()
 
+			// 2. 更新二进制文件
 			os.Remove(service.BasePath + "/" + service.Naive)
 			service.Naive = newNaive
 
-			// 使用统一的重启函数
-			if err := switcher.RestartNaive(state, state.FastestUrl); err != nil {
-				service.DebugF("Error restarting naive after update: %v\n", err)
+			// 3. 启动新进程（检查是否正在关闭）
+			select {
+			case <-state.AppContext.Done():
+				service.DebugF("Application is shutting down, skipping naive restart after update\n")
 				return
+			default:
 			}
 
+			state.NaiveCmd, err = service.NaiveCmd(state.FastestUrl)
+			if err != nil {
+				service.DebugF("Error creating naive command after update: %v\n", err)
+				return
+			}
+			if err := state.NaiveCmd.Start(); err != nil {
+				service.DebugF("Error starting naive after update: %v\n", err)
+				return
+			}
 			service.DebugF("Updated to %s\n", service.Naive)
 		}()
 

@@ -58,8 +58,14 @@ func init() {
 }
 
 func main() {
+	// 创建应用程序上下文
+	ctxWithCancel, gracefulShutdown := context.WithCancel(context.Background())
+	ctx, stop := signal.NotifyContext(ctxWithCancel, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	state := &types.GlobalState{
 		ServerDownPriority: make(map[string]int),
+		AppContext:         ctxWithCancel, // 设置应用程序上下文
 	}
 
 	// 解析命令行参数
@@ -97,12 +103,6 @@ func main() {
 
 	go switcher.Switcher(state, cfg, doSwitch)
 
-	var ctxWithCancel context.Context
-	var gracefulShutdown context.CancelFunc
-	ctxWithCancel, gracefulShutdown = context.WithCancel(context.Background())
-	ctx, stop := signal.NotifyContext(ctxWithCancel, syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
 	go updater.Updater(state, cfg, gracefulShutdown, doCheckUpdate)
 
 	doCheckUpdate <- struct{}{}
@@ -126,11 +126,17 @@ func main() {
 
 	<-ctx.Done()
 	println("Shutting down")
+
+	// 安全地停止 naive 进程
+	state.NaiveCmdLock.Lock()
 	if state.NaiveCmd != nil {
 		if err := state.NaiveCmd.Process.Kill(); err != nil {
 			println("Error killing naive: ", err)
 		}
 		state.NaiveCmd.Wait()
+		state.NaiveCmd = nil
 	}
+	state.NaiveCmdLock.Unlock()
+
 	println("Shutdown complete")
 }
