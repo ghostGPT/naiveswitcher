@@ -177,7 +177,7 @@ func Fastest(hostUrls []string, serverPriority map[string]int, deadServer string
 
 	var minCount int
 	for k, v := range serverPriority {
-		if _, has := aliveHosts.Load(k); !has {
+		if _, has := hostIps[k]; !has {
 			delete(serverPriority, k)
 		}
 		if minCount == 0 || v < minCount {
