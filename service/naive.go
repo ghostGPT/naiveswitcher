@@ -10,18 +10,19 @@ import (
 	"strings"
 
 	"golang.org/x/mod/semver"
+
+	"naiveswitcher/internal/types"
 )
 
 // naive version: naiveproxy-v130.0.6723.40-5-mac-x64
-
-func NaiveCmd(proxy string) (*exec.Cmd, error) {
+func NaiveCmd(state *types.GlobalState, proxy string) (*exec.Cmd, error) {
 	if Naive == "" {
 		return nil, errors.New("no naive found")
 	}
 	if proxy == "" {
 		return nil, errors.New("no proxy found")
 	}
-	return exec.Command(BasePath+"/"+Naive, "--listen=socks://"+UpstreamListenPort, "--proxy="+proxy), nil
+	return exec.CommandContext(state.AppContext, BasePath+"/"+Naive, "--listen=socks://"+UpstreamListenPort, "--proxy="+proxy), nil
 }
 
 func getNaiveList() []string {

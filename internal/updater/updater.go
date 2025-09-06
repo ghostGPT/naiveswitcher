@@ -70,7 +70,7 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 			default:
 			}
 
-			state.NaiveCmd, err = service.NaiveCmd(state.FastestUrl)
+			state.NaiveCmd, err = service.NaiveCmd(state, state.FastestUrl)
 			if err != nil {
 				service.DebugF("Error creating naive command after update: %v\n", err)
 				return

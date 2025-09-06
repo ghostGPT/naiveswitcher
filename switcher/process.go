@@ -10,8 +10,8 @@ import (
 // StopNaive 安全地停止 naive 进程（需要外部已获取锁）
 func stopNaiveUnsafe(state *types.GlobalState) {
 	if state.NaiveCmd != nil {
-		if err := state.NaiveCmd.Process.Kill(); err != nil {
-			service.DebugF("Error killing naive: %v\n", err)
+		if err := state.NaiveCmd.Cancel(); err != nil {
+			service.DebugF("Error cancel naive: %v\n", err)
 		}
 		state.NaiveCmd.Wait()
 		state.NaiveCmd = nil
@@ -30,7 +30,7 @@ func startNaiveUnsafe(state *types.GlobalState, targetServer string) error {
 	}
 
 	var err error
-	state.NaiveCmd, err = service.NaiveCmd(targetServer)
+	state.NaiveCmd, err = service.NaiveCmd(state, targetServer)
 	if err != nil {
 		service.DebugF("Error creating naive command: %v\n", err)
 		return err

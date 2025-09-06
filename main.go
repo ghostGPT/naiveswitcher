@@ -129,14 +129,15 @@ func main() {
 
 	// 安全地停止 naive 进程
 	state.NaiveCmdLock.Lock()
+	defer state.NaiveCmdLock.Unlock()
+
 	if state.NaiveCmd != nil {
-		if err := state.NaiveCmd.Process.Kill(); err != nil {
-			println("Error killing naive: ", err)
+		if err := state.NaiveCmd.Cancel(); err != nil {
+			println("Error cancel naive: ", err)
 		}
 		state.NaiveCmd.Wait()
 		state.NaiveCmd = nil
 	}
-	state.NaiveCmdLock.Unlock()
 
 	println("Shutdown complete")
 }
