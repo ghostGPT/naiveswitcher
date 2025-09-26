@@ -51,7 +51,7 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 
 			// 1. 停止当前进程
 			if state.NaiveCmd != nil {
-				if err := state.NaiveCmd.Process.Kill(); err != nil {
+				if err := state.NaiveCmd.Cancel(); err != nil {
 					service.DebugF("Error killing naive: %v\n", err)
 				}
 				state.NaiveCmd.Wait()
