@@ -14,12 +14,14 @@ type Config struct {
 	DNSResolverIP      string
 	BootstrapNode      string
 	Version            string
+	UpdateRepo         string // GitHub 仓库用于自更新，格式: "owner/repo"
 }
 
 // NewConfig 创建新的配置实例
 func NewConfig(version string) *Config {
 	return &Config{
-		Version: version,
+		Version:    version,
+		UpdateRepo: "ghostGPT/naiveswitcher", // 默认仓库
 	}
 }
 
@@ -33,6 +35,7 @@ func (c *Config) ParseFlags() bool {
 	flag.StringVar(&c.DNSResolverIP, "r", "1.0.0.1:53", "DNS resolver IP")
 	flag.IntVar(&c.AutoSwitchDuration, "a", 30, "Auto switch fastest duration (minutes)")
 	flag.StringVar(&c.BootstrapNode, "b", "", "Bootup node (default naive node https://a:b@domain:port)")
+	flag.StringVar(&c.UpdateRepo, "u", "ghostGPT/naiveswitcher", "GitHub repository for self-update (owner/repo)")
 	flag.BoolVar(&showVersion, "v", false, "Show version")
 	flag.Parse()
 

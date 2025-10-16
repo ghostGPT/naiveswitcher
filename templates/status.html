@@ -387,6 +387,137 @@
             background: #f44336;
             box-shadow: 0 0 10px rgba(244, 67, 54, 0.4);
         }
+
+        /* 日志查看器样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 900px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-header {
+            padding: 20px 25px;
+            border-bottom: 2px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: linear-gradient(135deg, #2196F3, #1976D2);
+            color: white;
+            border-radius: 15px 15px 0 0;
+        }
+
+        .modal-title {
+            font-size: 1.5em;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .modal-close {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .modal-close:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: rotate(90deg);
+        }
+
+        .modal-body {
+            padding: 25px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .logs-container {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 0.85em;
+            padding: 20px;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.5;
+            max-height: 60vh;
+            overflow-y: auto;
+            border: 1px solid #333;
+        }
+
+        .logs-container::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        .logs-container::-webkit-scrollbar-track {
+            background: #2d2d2d;
+            border-radius: 5px;
+        }
+
+        .logs-container::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 5px;
+        }
+
+        .logs-container::-webkit-scrollbar-thumb:hover {
+            background: #666;
+        }
+
+        .log-loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .log-empty {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+            font-style: italic;
+        }
     </style>
 </head>
 
@@ -405,6 +536,13 @@
                         <span
                             class="status-indicator {{if gt .ErrorCount 5}}error{{else if gt .ErrorCount 0}}warning{{else}}online{{end}}"></span>
                         <span class="server-url">{{.CurrentServer}}</span>
+                    </div>
+                </div>
+
+                <div class="status-card">
+                    <div class="status-label">Uptime</div>
+                    <div class="status-value">
+                        <span id="uptime-display">{{.Uptime}}</span>
                     </div>
                 </div>
 
@@ -434,13 +572,14 @@
             </div>
 
             <div class="actions">
-                <a href="/v?avoidServer={{.AvoidServerURL}}" class="btn btn-primary">Switch to Best Server</a>
+                <a href="/?avoidServer={{.AvoidServerURL}}" class="btn btn-primary">Switch to Best Server</a>
                 {{if .AutoSwitchPaused}}
-                    <a href="/v?autoSwitch=resume" class="btn btn-success">Resume Auto Switch</a>
+                    <a href="/?autoSwitch=resume" class="btn btn-success">Resume Auto Switch</a>
                 {{else}}
-                    <a href="/v?autoSwitch=pause" class="btn btn-secondary">Pause Auto Switch</a>
+                    <a href="/?autoSwitch=pause" class="btn btn-secondary">Pause Auto Switch</a>
                 {{end}}
-                <a href="/v?checkUpdate=true" class="btn btn-warning">Check Updates</a>
+                <a href="/?checkUpdate=true" class="btn btn-warning">Check Updates</a>
+                <button id="view-logs-btn" class="btn btn-secondary">View Logs</button>
             </div>
 
             <!-- 新增服务器选择功能 -->
@@ -479,6 +618,21 @@
         </div>
     </div>
 
+    <!-- 日志查看器模态框 -->
+    <div id="logs-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">System Logs</h2>
+                <button class="modal-close" id="close-logs-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="logs-content" class="logs-container">
+                    <div class="log-loading">Loading logs...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // 服务器选择功能
         document.addEventListener('DOMContentLoaded', function() {
@@ -491,7 +645,7 @@
                     switchBtn.disabled = false;
                     switchBtn.onclick = function() {
                         if (confirm('Are you sure you want to switch to: ' + selectedServer + '?')) {
-                            window.location.href = '/v?selectServer=' + encodeURIComponent(selectedServer);
+                            window.location.href = '/?selectServer=' + encodeURIComponent(selectedServer);
                         }
                     };
                 } else {
@@ -507,6 +661,81 @@
                     currentOption.title = 'This is the current server';
                 }
             });
+
+            // 日志查看器功能
+            const logsModal = document.getElementById('logs-modal');
+            const viewLogsBtn = document.getElementById('view-logs-btn');
+            const closeLogsModal = document.getElementById('close-logs-modal');
+            const logsContent = document.getElementById('logs-content');
+
+            viewLogsBtn.addEventListener('click', function() {
+                logsModal.classList.add('active');
+                loadLogs();
+            });
+
+            closeLogsModal.addEventListener('click', function() {
+                logsModal.classList.remove('active');
+            });
+
+            logsModal.addEventListener('click', function(e) {
+                if (e.target === logsModal) {
+                    logsModal.classList.remove('active');
+                }
+            });
+
+            function loadLogs() {
+                logsContent.innerHTML = '<div class="log-loading">Loading logs...</div>';
+
+                fetch('/api/logs')
+                    .then(response => response.text())
+                    .then(data => {
+                        if (data.trim() === '') {
+                            logsContent.innerHTML = '<div class="log-empty">No logs available</div>';
+                        } else {
+                            logsContent.textContent = data;
+                            // 自动滚动到底部
+                            logsContent.scrollTop = logsContent.scrollHeight;
+                        }
+                    })
+                    .catch(error => {
+                        logsContent.innerHTML = '<div class="log-empty">Error loading logs: ' + error.message + '</div>';
+                    });
+            }
+
+            // 实时更新运行时长
+            const startTime = {{.StartTime}};
+            const uptimeDisplay = document.getElementById('uptime-display');
+
+            function updateUptime() {
+                if (startTime === 0) return;
+
+                const now = Math.floor(Date.now() / 1000);
+                const diff = now - startTime;
+
+                const days = Math.floor(diff / 86400);
+                const hours = Math.floor((diff % 86400) / 3600);
+                const minutes = Math.floor((diff % 3600) / 60);
+                const seconds = diff % 60;
+
+                let uptimeStr = '';
+                if (days > 0) {
+                    uptimeStr = days + 'd ' + hours + 'h ' + minutes + 'm ' + seconds + 's';
+                } else if (hours > 0) {
+                    uptimeStr = hours + 'h ' + minutes + 'm ' + seconds + 's';
+                } else if (minutes > 0) {
+                    uptimeStr = minutes + 'm ' + seconds + 's';
+                } else {
+                    uptimeStr = seconds + 's';
+                }
+
+                uptimeDisplay.textContent = uptimeStr;
+            }
+
+            // 每秒更新一次运行时长
+            if (startTime > 0) {
+                setInterval(updateUptime, 1000);
+                updateUptime(); // 立即更新一次
+            }
         });
     </script>
 </body>

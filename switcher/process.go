@@ -10,9 +10,20 @@ import (
 // StopNaive 安全地停止 naive 进程（需要外部已获取锁）
 func stopNaiveUnsafe(state *types.GlobalState) {
 	if state.NaiveCmd != nil {
-		if err := state.NaiveCmd.Cancel(); err != nil {
-			service.DebugF("Error cancel naive: %v\n", err)
+		// 1. 先取消 context，触发进程优雅退出
+		if state.NaiveCmdCancel != nil {
+			state.NaiveCmdCancel()
+			state.NaiveCmdCancel = nil
 		}
+
+		// 2. 如果进程还在运行，强制杀死
+		if state.NaiveCmd.Process != nil {
+			if err := state.NaiveCmd.Process.Kill(); err != nil {
+				service.DebugF("Error killing naive process: %v\n", err)
+			}
+		}
+
+		// 3. 等待进程完全退出，避免僵尸进程
 		state.NaiveCmd.Wait()
 		state.NaiveCmd = nil
 	}
@@ -30,16 +41,22 @@ func startNaiveUnsafe(state *types.GlobalState, targetServer string) error {
 	}
 
 	var err error
-	state.NaiveCmd, err = service.NaiveCmd(state, targetServer)
+	state.NaiveCmd, state.NaiveCmdCancel, err = service.NaiveCmd(state, targetServer)
 	if err != nil {
 		service.DebugF("Error creating naive command: %v\n", err)
 		return err
 	}
 	if err := state.NaiveCmd.Start(); err != nil {
 		service.DebugF("Error starting naive: %v\n", err)
+		// 如果启动失败，取消 context 释放资源
+		if state.NaiveCmdCancel != nil {
+			state.NaiveCmdCancel()
+			state.NaiveCmdCancel = nil
+		}
+		state.NaiveCmd = nil
 		return err
 	}
-	service.DebugF("Successfully started naive process for server: %s\n", targetServer)
+	service.DebugF("Successfully started naive process (PID: %d) for server: %s\n", state.NaiveCmd.Process.Pid, targetServer)
 	return nil
 }
 

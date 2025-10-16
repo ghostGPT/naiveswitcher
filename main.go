@@ -28,7 +28,7 @@ const (
 var templatesFS embed.FS
 
 var (
-	version   string
+	version   string = "888.888.888"
 	templates *template.Template
 	cfg       = config.NewConfig(version)
 )
@@ -66,6 +66,7 @@ func main() {
 	state := &types.GlobalState{
 		ServerDownPriority: make(map[string]int),
 		AppContext:         ctxWithCancel, // 设置应用程序上下文
+		StartTime:          time.Now().Unix(),
 	}
 
 	// 解析命令行参数
@@ -80,14 +81,16 @@ func main() {
 	if err := cfg.Validate(); err != nil {
 		println(err.Error())
 		return
-	} // 初始化服务器列表
+	}
+
+	// 初始化服务器列表
 	var err error
 	if len(state.HostUrls) == 0 {
 		state.HostUrls = append(state.HostUrls, cfg.BootstrapNode)
 	}
 	state.HostUrls, err = switcher.HandleSwitch(state, cfg, state.HostUrls, "")
 	if err != nil {
-		println("Bootstrap error:", err.Error())
+		service.DebugF("Bootstrap error: %v (will auto retry)\n", err)
 	}
 
 	// 启动 TCP 监听
@@ -127,13 +130,31 @@ func main() {
 	<-ctx.Done()
 	println("Shutting down")
 
-	// 安全地停止 naive 进程
+	// 1. 先触发 gracefulShutdown 取消所有子 context
+	gracefulShutdown()
+
+	// 2. 关闭通道，通知所有 goroutine 停止接收新请求
+	close(doSwitch)
+	close(doCheckUpdate)
+
+	// 3. 给 goroutines 一些时间完成当前操作
+	time.Sleep(500 * time.Millisecond)
+
+	// 4. 最后安全地停止 naive 进程
 	state.NaiveCmdLock.Lock()
 	defer state.NaiveCmdLock.Unlock()
 
 	if state.NaiveCmd != nil {
-		if err := state.NaiveCmd.Cancel(); err != nil {
-			println("Error cancel naive: ", err)
+		// 先取消 context
+		if state.NaiveCmdCancel != nil {
+			state.NaiveCmdCancel()
+			state.NaiveCmdCancel = nil
+		}
+		// 强制杀死进程
+		if state.NaiveCmd.Process != nil {
+			if err := state.NaiveCmd.Process.Kill(); err != nil {
+				println("Error killing naive process: ", err)
+			}
 		}
 		state.NaiveCmd.Wait()
 		state.NaiveCmd = nil

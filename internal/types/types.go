@@ -23,12 +23,15 @@ type StatusData struct {
 	SwitcherVersion  string
 	AutoSwitchPaused bool
 	AvailableServers []string // 新增：可用服务器列表
+	Uptime           string   // 运行时长
+	StartTime        int64    // 启动时间戳（用于前端计算）
 }
 
 // GlobalState 包含全局状态
 type GlobalState struct {
 	ErrorCount         int
 	NaiveCmd           *exec.Cmd
+	NaiveCmdCancel     context.CancelFunc // naive进程的取消函数
 	NaiveCmdLock       sync.Mutex
 	FastestUrl         string
 	HostUrls           []string
@@ -36,4 +39,5 @@ type GlobalState struct {
 	AutoSwitchPaused   bool
 	AutoSwitchMutex    sync.RWMutex
 	AppContext         context.Context // 应用程序上下文，用于控制进程启动
+	StartTime          int64           // 启动时间戳
 }

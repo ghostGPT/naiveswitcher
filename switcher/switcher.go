@@ -3,6 +3,8 @@ package switcher
 import (
 	"errors"
 	"fmt"
+	"sync"
+
 	"naiveswitcher/internal/config"
 	"naiveswitcher/internal/types"
 	"naiveswitcher/service"
@@ -12,18 +14,25 @@ import (
 // Switcher 处理切换请求
 func Switcher(state *types.GlobalState, cfg *config.Config, doSwitch <-chan types.SwitchRequest) {
 	var switching bool
+	var switchingLock sync.Mutex
 	for switchReq := range doSwitch {
+		switchingLock.Lock()
 		if switching {
+			switchingLock.Unlock()
 			continue
 		}
 		switching = true
+		switchingLock.Unlock()
+
 		state.ErrorCount = 0
 		service.DebugF("Switch request: Type=%s, Target=%s, Avoid=%s\n",
 			switchReq.Type, switchReq.TargetServer, switchReq.AvoidServer)
 
 		go func(req types.SwitchRequest) {
 			defer func() {
+				switchingLock.Lock()
 				switching = false
+				switchingLock.Unlock()
 				state.ErrorCount = 0
 				service.DebugF("Switching done\n")
 			}()
