@@ -53,16 +53,60 @@
             padding: 30px;
         }
 
-        .status-grid {
+        .current-server-display {
+            background: linear-gradient(135deg, #f0f8ff, #e3f2fd);
+            padding: 25px;
+            border-radius: 12px;
+            border: 2px solid #2196F3;
+            text-align: center;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 20px rgba(33, 150, 243, 0.15);
+        }
+
+        .main-grid {
             display: grid;
-            grid-template-columns: 2fr 1fr;
-            grid-template-rows: auto auto;
-            gap: 20px;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
             margin-bottom: 30px;
         }
 
-        .status-card:first-child {
-            grid-row: 1 / 3;
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        .section-title {
+            font-size: 1.1em;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #f0f0f0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-title-icon {
+            font-size: 1.3em;
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #f5f5f5;
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
         }
 
         .status-card {
@@ -71,6 +115,21 @@
             padding: 20px;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
             border-left: 4px solid #2196F3;
+        }
+
+        .info-label {
+            font-size: 0.95em;
+            font-weight: 600;
+            color: #666;
+        }
+
+        .info-value {
+            font-size: 0.95em;
+            font-weight: 600;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
         .status-label {
@@ -95,6 +154,28 @@
             border-radius: 6px;
             font-family: 'Monaco', 'Menlo', monospace;
             font-size: 0.9em;
+            word-break: break-all;
+        }
+
+        .current-server-label {
+            font-size: 0.85em;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .current-server-value {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 1.1em;
+            color: #1976D2;
+            font-weight: 700;
+            word-break: break-all;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
         .error-count.high {
@@ -130,16 +211,14 @@
         }
 
         .actions {
-            display: flex;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 15px;
-            justify-content: center;
-            flex-wrap: wrap;
-            margin-bottom: 30px;
-            margin-top: 30px;
+            margin-top: 15px;
         }
 
         .btn {
-            padding: 12px 24px;
+            padding: 12px 20px;
             border: none;
             border-radius: 8px;
             text-decoration: none;
@@ -147,10 +226,12 @@
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            display: inline-flex;
+            display: flex;
             align-items: center;
+            justify-content: center;
             gap: 8px;
-            font-size: 1em;
+            font-size: 0.95em;
+            text-align: center;
         }
 
         .btn:hover {
@@ -184,59 +265,17 @@
             font-weight: 600;
         }
 
-        /* 服务器选择样式 */
-        .server-selection {
-            background: white;
-            border-radius: 10px;
-            padding: 25px;
-            margin-top: 20px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            border-left: 4px solid #FF9800;
-        }
-
-        .selection-title {
-            font-size: 1.4em;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .selection-title::before {
-            content: '🎯';
-            font-size: 1.2em;
-        }
-
-        .selection-content {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-        }
-
-        .server-dropdown {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .server-dropdown label {
-            font-weight: 600;
-            color: #555;
-            font-size: 1em;
-        }
-
         .server-select {
             padding: 12px 16px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
-            font-size: 1em;
+            font-size: 0.95em;
             background: white;
             color: #333;
             transition: border-color 0.3s ease;
             font-family: 'Monaco', 'Menlo', monospace;
-            min-height: 48px;
+            width: 100%;
+            margin-bottom: 12px;
         }
 
         .server-select:focus {
@@ -251,9 +290,7 @@
         }
 
         .switch-btn {
-            align-self: flex-start;
-            min-width: 200px;
-            justify-content: center;
+            width: 100%;
             transition: all 0.3s ease;
         }
 
@@ -326,42 +363,58 @@
             font-size: 0.9em;
         }
 
-        @media (max-width: 1024px) and (min-width: 769px) {
-            .status-grid {
-                grid-template-columns: 1fr 1fr;
-                grid-template-rows: auto auto auto;
+        @media (max-width: 1024px) {
+            .main-grid {
+                grid-template-columns: 1fr;
             }
-            
-            .status-card:first-child {
-                grid-row: 1 / 2;
-                grid-column: 1 / 3;
+
+            .full-width {
+                grid-column: auto;
             }
         }
 
         @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            .container {
+                border-radius: 10px;
+            }
+
             .title {
                 font-size: 2em;
             }
 
-            .status-grid {
-                grid-template-columns: 1fr;
-                grid-template-rows: auto auto auto;
+            .header {
+                padding: 20px;
             }
-            
-            .status-card:first-child {
-                grid-row: auto;
-                grid-column: auto;
+
+            .content {
+                padding: 20px;
+            }
+
+            .section {
+                padding: 20px;
+            }
+
+            .main-grid {
+                gap: 20px;
             }
 
             .actions {
                 flex-direction: column;
-                align-items: center;
+                align-items: stretch;
+                gap: 12px;
             }
 
             .btn {
                 width: 100%;
-                max-width: 300px;
                 justify-content: center;
+            }
+
+            .switch-btn {
+                min-width: auto;
             }
         }
 
@@ -409,8 +462,13 @@
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
         }
 
         .modal-content {
@@ -426,8 +484,15 @@
         }
 
         @keyframes slideUp {
-            from { transform: translateY(50px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
+            from {
+                transform: translateY(50px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
         }
 
         .modal-header {
@@ -529,90 +594,111 @@
         </div>
 
         <div class="content">
-            <div class="status-grid">
-                <div class="status-card">
-                    <div class="status-label">Current Server</div>
-                    <div class="status-value">
-                        <span
-                            class="status-indicator {{if gt .ErrorCount 5}}error{{else if gt .ErrorCount 0}}warning{{else}}online{{end}}"></span>
-                        <span class="server-url">{{.CurrentServer}}</span>
-                    </div>
+            <!-- Current Server Display -->
+            <div class="current-server-display">
+                <div class="current-server-label">Current Proxy Server</div>
+                <div class="current-server-value">
+                    <span
+                        class="status-indicator {{if gt .ErrorCount 5}}error{{else if gt .ErrorCount 0}}warning{{else}}online{{end}}"></span>
+                    {{.CurrentServer}}
                 </div>
+            </div>
 
-                <div class="status-card">
-                    <div class="status-label">Uptime</div>
-                    <div class="status-value">
-                        <span id="uptime-display">{{.Uptime}}</span>
+            <!-- Main Information Grid -->
+            <div class="main-grid">
+                <!-- System Status Section -->
+                <div class="section">
+                    <div class="section-title">
+                        <span class="section-title-icon">📊</span>
+                        System Status
                     </div>
-                </div>
-
-                <div class="status-card">
-                    <div class="status-label">Auto Switch</div>
-                    <div class="status-value">
-                        <span class="status-indicator {{if .AutoSwitchPaused}}warning{{else}}online{{end}}"></span>
-                        <span class="{{if .AutoSwitchPaused}}paused{{else}}running{{end}}">
-                            {{if .AutoSwitchPaused}}Paused{{else}}Running{{end}}
+                    <div class="info-row">
+                        <span class="info-label">Uptime</span>
+                        <span class="info-value">{{.Uptime}}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Auto Switch</span>
+                        <span class="info-value">
+                            <span class="status-indicator {{if .AutoSwitchPaused}}warning{{else}}online{{end}}"></span>
+                            <span class="{{if .AutoSwitchPaused}}paused{{else}}running{{end}}">
+                                {{if .AutoSwitchPaused}}Paused{{else}}Running{{end}}
+                            </span>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Error Count</span>
+                        <span class="info-value">
+                            <span class="error-count {{if gt .ErrorCount 5}}high{{else}}low{{end}}">
+                                {{.ErrorCount}}
+                            </span>
                         </span>
                     </div>
                 </div>
 
-                <div class="status-card">
-                    <div class="status-label">Error Count</div>
-                    <div class="status-value">
-                        <span class="error-count-large {{if gt .ErrorCount 5}}high{{else}}low{{end}}">
-                            {{.ErrorCount}}
+                <!-- Version Information Section -->
+                <div class="section">
+                    <div class="section-title">
+                        <span class="section-title-icon">ℹ️</span>
+                        Version Info
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Naive Proxy</span>
+                        <span class="info-value">
+                            <span class="version-value">{{.NaiveVersion}}</span>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">NaiveSwitcher</span>
+                        <span class="info-value">
+                            <span class="version-value">{{.SwitcherVersion}}</span>
                         </span>
                     </div>
                 </div>
-            </div>
 
-            <div class="status-card">
-                <div class="status-label">Server Down Statistics</div>
-                <div class="down-stats">{{.DownStats}}</div>
-            </div>
+                <!-- Server Down Statistics -->
+                <div class="section full-width">
+                    <div class="section-title">
+                        <span class="section-title-icon">📉</span>
+                        Server Down Statistics
+                    </div>
+                    <div class="down-stats">{{.DownStats}}</div>
+                </div>
 
-            <div class="actions">
-                <a href="/?avoidServer={{.AvoidServerURL}}" class="btn btn-primary">Switch to Best Server</a>
-                {{if .AutoSwitchPaused}}
-                    <a href="/?autoSwitch=resume" class="btn btn-success">Resume Auto Switch</a>
-                {{else}}
-                    <a href="/?autoSwitch=pause" class="btn btn-secondary">Pause Auto Switch</a>
-                {{end}}
-                <a href="/?checkUpdate=true" class="btn btn-warning">Check Updates</a>
-                <button id="view-logs-btn" class="btn btn-secondary">View Logs</button>
-            </div>
-
-            <!-- 新增服务器选择功能 -->
-            <div class="server-selection">
-                <h3 class="selection-title">Select Server</h3>
-                <div class="selection-content">
-                    <div class="server-dropdown">
-                        <label for="server-select">Choose a server to switch to:</label>
-                        <select id="server-select" class="server-select">
-                            <option value="">-- Select Server --</option>
-                            {{range .AvailableServers}}
-                                <option value="{{.}}" {{if eq . $.CurrentServer}}selected{{end}}>
-                                    {{.}} {{if eq . $.CurrentServer}}(Current){{end}}
-                                </option>
-                            {{end}}
-                        </select>
-                        <button id="switch-btn" class="btn btn-primary switch-btn" disabled>
-                            Switch to Selected Server
-                        </button>
+                <!-- Quick Actions Section -->
+                <div class="section full-width">
+                    <div class="section-title">
+                        <span class="section-title-icon">⚡</span>
+                        Quick Actions
+                    </div>
+                    <div class="actions">
+                        <a href="/?avoidServer={{.AvoidServerURL}}" class="btn btn-primary">Switch to Best Server</a>
+                        {{if .AutoSwitchPaused}}
+                        <a href="/?autoSwitch=resume" class="btn btn-success">Resume Auto Switch</a>
+                        {{else}}
+                        <a href="/?autoSwitch=pause" class="btn btn-secondary">Pause Auto Switch</a>
+                        {{end}}
+                        <a href="/?checkUpdate=true" class="btn btn-warning">Check Updates</a>
+                        <button id="view-logs-btn" class="btn btn-secondary">View Logs</button>
                     </div>
                 </div>
-            </div>
 
-            <div class="version-info">
-                <div class="version-grid">
-                    <div class="version-item">
-                        <span class="version-label">Naive Proxy:</span>
-                        <span class="version-value">{{.NaiveVersion}}</span>
+                <!-- Server Selection Section -->
+                <div class="section full-width">
+                    <div class="section-title">
+                        <span class="section-title-icon">🎯</span>
+                        Manual Server Selection
                     </div>
-                    <div class="version-item">
-                        <span class="version-label">NaiveSwitcher:</span>
-                        <span class="version-value">{{.SwitcherVersion}}</span>
-                    </div>
+                    <select id="server-select" class="server-select">
+                        <option value="">-- Select a server to switch to --</option>
+                        {{range .AvailableServers}}
+                        <option value="{{.}}" {{if eq . $.CurrentServer}}selected{{end}}>
+                            {{.}} {{if eq . $.CurrentServer}}(Current){{end}}
+                        </option>
+                        {{end}}
+                    </select>
+                    <button id="switch-btn" class="btn btn-primary switch-btn" disabled>
+                        Switch to Selected Server
+                    </button>
                 </div>
             </div>
         </div>
@@ -635,15 +721,15 @@
 
     <script>
         // 服务器选择功能
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             const serverSelect = document.getElementById('server-select');
             const switchBtn = document.getElementById('switch-btn');
 
-            serverSelect.addEventListener('change', function() {
+            serverSelect.addEventListener('change', function () {
                 const selectedServer = this.value;
                 if (selectedServer && selectedServer !== '{{.CurrentServer}}') {
                     switchBtn.disabled = false;
-                    switchBtn.onclick = function() {
+                    switchBtn.onclick = function () {
                         if (confirm('Are you sure you want to switch to: ' + selectedServer + '?')) {
                             window.location.href = '/?selectServer=' + encodeURIComponent(selectedServer);
                         }
@@ -655,7 +741,7 @@
             });
 
             // 阻止选择当前服务器
-            serverSelect.addEventListener('click', function() {
+            serverSelect.addEventListener('click', function () {
                 const currentOption = this.querySelector('option[selected]');
                 if (currentOption) {
                     currentOption.title = 'This is the current server';
@@ -668,16 +754,16 @@
             const closeLogsModal = document.getElementById('close-logs-modal');
             const logsContent = document.getElementById('logs-content');
 
-            viewLogsBtn.addEventListener('click', function() {
+            viewLogsBtn.addEventListener('click', function () {
                 logsModal.classList.add('active');
                 loadLogs();
             });
 
-            closeLogsModal.addEventListener('click', function() {
+            closeLogsModal.addEventListener('click', function () {
                 logsModal.classList.remove('active');
             });
 
-            logsModal.addEventListener('click', function(e) {
+            logsModal.addEventListener('click', function (e) {
                 if (e.target === logsModal) {
                     logsModal.classList.remove('active');
                 }
@@ -702,40 +788,7 @@
                     });
             }
 
-            // 实时更新运行时长
-            const startTime = {{.StartTime}};
-            const uptimeDisplay = document.getElementById('uptime-display');
-
-            function updateUptime() {
-                if (startTime === 0) return;
-
-                const now = Math.floor(Date.now() / 1000);
-                const diff = now - startTime;
-
-                const days = Math.floor(diff / 86400);
-                const hours = Math.floor((diff % 86400) / 3600);
-                const minutes = Math.floor((diff % 3600) / 60);
-                const seconds = diff % 60;
-
-                let uptimeStr = '';
-                if (days > 0) {
-                    uptimeStr = days + 'd ' + hours + 'h ' + minutes + 'm ' + seconds + 's';
-                } else if (hours > 0) {
-                    uptimeStr = hours + 'h ' + minutes + 'm ' + seconds + 's';
-                } else if (minutes > 0) {
-                    uptimeStr = minutes + 'm ' + seconds + 's';
-                } else {
-                    uptimeStr = seconds + 's';
-                }
-
-                uptimeDisplay.textContent = uptimeStr;
-            }
-
-            // 每秒更新一次运行时长
-            if (startTime > 0) {
-                setInterval(updateUptime, 1000);
-                updateUptime(); // 立即更新一次
-            }
+            // Uptime auto-refresh has been removed - displaying static uptime only
         });
     </script>
 </body>
