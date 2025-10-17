@@ -3,7 +3,7 @@ package updater
 import (
 	"context"
 	"os"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blang/semver"
@@ -15,24 +15,19 @@ import (
 )
 
 // Updater 处理更新检查
+// 注意：此函数在单个 goroutine 中运行，从 signal channel 顺序处理请求
+// 使用原子标志避免并发检查，如果正在检查中则跳过新请求
 func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown context.CancelFunc, signal <-chan struct{}) {
-	var checking bool
-	var checkingLock sync.Mutex
 	for range signal {
-		checkingLock.Lock()
-		if checking {
-			checkingLock.Unlock()
+		// 检查是否正在更新，如果是则跳过
+		if !atomic.CompareAndSwapInt32(&state.Checking, 0, 1) {
+			service.DebugF("Already checking for updates, skipping request\n")
 			continue
 		}
-		checking = true
-		checkingLock.Unlock()
 
+		// 启动 naive 更新检查（异步，避免阻塞）
 		go func() {
-			defer func() {
-				checkingLock.Lock()
-				checking = false
-				checkingLock.Unlock()
-			}()
+			defer atomic.StoreInt32(&state.Checking, 0) // 完成后重置标志
 
 			// 检查应用是否正在关闭
 			select {
@@ -122,17 +117,30 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 			default:
 			}
 
+			service.DebugF("Checking for naiveswitcher self-update from repo: %s\n", config.UpdateRepo)
 			v := semver.MustParse(config.Version)
+			service.DebugF("Current naiveswitcher version: %s\n", config.Version)
+
 			latest, err := selfupdate.UpdateSelf(v, config.UpdateRepo)
 			if err != nil {
-				service.DebugF("Binary update failed: %v\n", err)
+				service.DebugF("NaiveSwitcher update check failed: %v\n", err)
 				return
 			}
+
+			// 检查返回值
+			if latest == nil {
+				service.DebugF("No naiveswitcher update information from GitHub\n")
+				return
+			}
+
+			service.DebugF("NaiveSwitcher version comparison - Current: %s, GitHub latest: %s\n", v, latest.Version)
+
 			if latest.Version.LTE(v) {
-				service.DebugF("Current binary is the latest version: %s\n", config.Version)
+				service.DebugF("NaiveSwitcher is up to date (current: %s >= latest: %s)\n", config.Version, latest.Version)
 			} else {
-				service.DebugF("Successfully updated to version: %s\n", latest.Version)
-				service.DebugF("Release note:\n%s\n", latest.ReleaseNotes)
+				service.DebugF("NaiveSwitcher updated from %s to %s\n", config.Version, latest.Version)
+				service.DebugF("Release notes:\n%s\n", latest.ReleaseNotes)
+				service.DebugF("Triggering graceful shutdown for restart...\n")
 				gracefulShutdown()
 			}
 		}()

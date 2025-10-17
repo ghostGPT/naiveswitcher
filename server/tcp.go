@@ -4,10 +4,11 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"naiveswitcher/service"
 	"naiveswitcher/internal/types"
+	"naiveswitcher/service"
 	"naiveswitcher/util"
 )
 
@@ -21,7 +22,7 @@ var DataServerDown = map[[12]byte]struct{}{
 // ServeTCP 启动 TCP 代理服务器
 func ServeTCP(state *types.GlobalState, l net.Listener, doSwitch chan<- types.SwitchRequest) {
 	bufPool := &sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return make([]byte, 32*1024)
 		},
 	}
@@ -37,9 +38,9 @@ func ServeTCP(state *types.GlobalState, l net.Listener, doSwitch chan<- types.Sw
 
 // HandleConnection 处理单个连接
 func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Pool, doSwitch chan<- types.SwitchRequest) {
-	defer conn.Close()
 
 	if state.NaiveCmd == nil {
+		conn.Close()
 		service.DebugF("No naive running\n")
 		doSwitch <- types.SwitchRequest{Type: "auto"}
 		return
@@ -50,10 +51,6 @@ func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Poo
 
 	naiveConn, err := net.DialTimeout("tcp", service.UpstreamListenPort, 3*time.Second)
 	if err == nil {
-		if tcpConn, ok := naiveConn.(*net.TCPConn); ok {
-			tcpConn.SetKeepAlive(true)
-			tcpConn.SetKeepAlivePeriod(2 * time.Minute)
-		}
 		go func() {
 			defer naiveConn.Close()
 			_, e := io.Copy(naiveConn, conn)
@@ -65,18 +62,38 @@ func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Poo
 		bufPool.Put(buf)
 	}
 
-	if serverDown {
-		state.ErrorCount++
-	} else if state.ErrorCount > 0 {
-		state.ErrorCount--
-	}
+	conn.SetDeadline(time.Now())
+	conn.Close()
+	naiveConn.SetDeadline(time.Now())
+	naiveConn.Close()
 
-	if state.ErrorCount > 10 {
-		state.ErrorCount = 0
-		service.DebugF("Too many errors, gonna switch\n")
-		doSwitch <- types.SwitchRequest{
-			Type:        "avoid",
-			AvoidServer: state.FastestUrl,
+	// 更新错误计数
+	if serverDown {
+		newCount := atomic.AddInt32(&state.ErrorCount, 1)
+		// 错误过多时触发切换
+		if newCount > 10 {
+			atomic.StoreInt32(&state.ErrorCount, 0)
+			service.DebugF("Too many errors (%d), switching server\n", newCount)
+			doSwitch <- types.SwitchRequest{
+				Type:        "avoid",
+				AvoidServer: state.FastestUrl,
+			}
+		}
+	} else {
+		// 成功时减少错误计数（但不低于0）
+		decrementErrorCount(&state.ErrorCount)
+	}
+}
+
+// decrementErrorCount 原子地减少错误计数，但不会低于0
+func decrementErrorCount(count *int32) {
+	for {
+		old := atomic.LoadInt32(count)
+		if old <= 0 {
+			return
+		}
+		if atomic.CompareAndSwapInt32(count, old, old-1) {
+			return
 		}
 	}
 }

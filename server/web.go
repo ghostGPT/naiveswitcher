@@ -3,31 +3,51 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"math/rand"
 	"net/http"
-	"net/url"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	proping "github.com/prometheus-community/pro-bing"
 
 	"naiveswitcher/internal/config"
-	"naiveswitcher/service"
 	"naiveswitcher/internal/types"
+	"naiveswitcher/service"
 	"naiveswitcher/util"
 )
 
 // ServeWeb 启动 Web 管理界面
-func ServeWeb(state *types.GlobalState, config *config.Config, templates *template.Template, doSwitch chan<- types.SwitchRequest, doCheckUpdate chan<- struct{}) {
-	// 主界面 - 移到根路径
+func ServeWeb(state *types.GlobalState, config *config.Config, staticFS http.FileSystem, doSwitch chan<- types.SwitchRequest, doCheckUpdate chan<- struct{}) {
+	// 主界面 - 提供静态 HTML
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
-		handleStatusPage(state, config, templates, w, r, doSwitch, doCheckUpdate)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		file, err := staticFS.Open("web/index.html")
+		if err != nil {
+			http.Error(w, "Unable to load index.html: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer file.Close()
+
+		// Read the file content and serve it
+		content := make([]byte, 0)
+		buf := make([]byte, 4096)
+		for {
+			n, err := file.Read(buf)
+			if n > 0 {
+				content = append(content, buf[:n]...)
+			}
+			if err != nil {
+				break
+			}
+		}
+		w.Write(content)
 	})
 
 	// API 端点
@@ -61,91 +81,6 @@ func ServeWeb(state *types.GlobalState, config *config.Config, templates *templa
 	})
 
 	http.ListenAndServe(config.WebPort, nil)
-}
-
-func handleStatusPage(state *types.GlobalState, config *config.Config, templates *template.Template, w http.ResponseWriter, r *http.Request, doSwitch chan<- types.SwitchRequest, doCheckUpdate chan<- struct{}) {
-	w.Header().Add("Content-Type", "text/html")
-
-	// 重命名参数避免歧义：avoidServer 表示避免切换到此服务器
-	avoidServer, _ := url.QueryUnescape(r.URL.Query().Get("avoidServer"))
-	// 新增参数：selectServer 表示直接切换到选择的服务器
-	selectServer, _ := url.QueryUnescape(r.URL.Query().Get("selectServer"))
-
-	// Handle direct server selection
-	if selectServer != "" {
-		// 直接切换到选择的服务器
-		doSwitch <- types.SwitchRequest{
-			Type:         "select",
-			TargetServer: selectServer,
-		}
-		err := templates.ExecuteTemplate(w, "switching.html", nil)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	// Handle pause/resume auto switch
-	if action := r.URL.Query().Get("autoSwitch"); action != "" {
-		state.AutoSwitchMutex.Lock()
-		switch action {
-		case "pause":
-			state.AutoSwitchPaused = true
-		case "resume":
-			state.AutoSwitchPaused = false
-		}
-		state.AutoSwitchMutex.Unlock()
-		// Redirect back to status page to avoid refresh issues
-		http.Redirect(w, r, "/v", http.StatusSeeOther)
-		return
-	}
-
-	// 处理当前服务器出错，需要切换但避免切换到指定服务器
-	if avoidServer == state.FastestUrl {
-		doSwitch <- types.SwitchRequest{
-			Type:        "avoid",
-			AvoidServer: avoidServer,
-		}
-		err := templates.ExecuteTemplate(w, "switching.html", nil)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	if r.URL.Query().Get("checkUpdate") == "true" {
-		doCheckUpdate <- struct{}{}
-		err := templates.ExecuteTemplate(w, "update_check.html", nil)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		return
-	}
-
-	state.AutoSwitchMutex.RLock()
-	paused := state.AutoSwitchPaused
-	state.AutoSwitchMutex.RUnlock()
-
-	// 计算运行时长
-	uptime := formatUptime(time.Since(time.Unix(state.StartTime, 0)))
-
-	data := types.StatusData{
-		CurrentServer:    state.FastestUrl,
-		ErrorCount:       state.ErrorCount,
-		DownStats:        fmt.Sprintf("%+v", state.ServerDownPriority),
-		AvoidServerURL:   url.QueryEscape(state.FastestUrl),
-		NaiveVersion:     service.Naive,
-		SwitcherVersion:  config.Version,
-		AutoSwitchPaused: paused,
-		AvailableServers: state.HostUrls,
-		Uptime:           uptime,
-		StartTime:        state.StartTime,
-	}
-
-	err := templates.ExecuteTemplate(w, "status.html", data)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
 }
 
 func handleSubscription(state *types.GlobalState, config *config.Config, w http.ResponseWriter, _ *http.Request) {
@@ -242,16 +177,31 @@ func handleStatusAPI(state *types.GlobalState, config *config.Config, w http.Res
 
 	uptime := formatUptime(time.Since(time.Unix(state.StartTime, 0)))
 
+	// 复制 ServerDownPriority map 需要加锁
+	state.ServerDownPriorityMutex.RLock()
+	downStatsCopy := make(map[string]int, len(state.ServerDownPriority))
+	for k, v := range state.ServerDownPriority {
+		downStatsCopy[k] = v
+	}
+	state.ServerDownPriorityMutex.RUnlock()
+
+	// Get runtime metrics
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+
 	data := map[string]interface{}{
 		"current_server":     state.FastestUrl,
-		"error_count":        state.ErrorCount,
-		"down_stats":         state.ServerDownPriority,
+		"error_count":        atomic.LoadInt32(&state.ErrorCount),
+		"down_stats":         downStatsCopy,
 		"naive_version":      service.Naive,
 		"switcher_version":   config.Version,
 		"auto_switch_paused": paused,
 		"available_servers":  state.HostUrls,
 		"uptime":             uptime,
 		"start_time":         state.StartTime,
+		"goroutine_count":    runtime.NumGoroutine(),
+		"memory_usage_mb":    fmt.Sprintf("%.2f", float64(memStats.Sys)/1024/1024),
+		"memory_alloc_mb":    fmt.Sprintf("%.2f", float64(memStats.Alloc)/1024/1024),
 	}
 
 	writeJSONSuccess(w, data)

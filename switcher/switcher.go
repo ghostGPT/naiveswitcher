@@ -3,61 +3,53 @@ package switcher
 import (
 	"errors"
 	"fmt"
-	"sync"
+	"net/url"
+	"sync/atomic"
 
 	"naiveswitcher/internal/config"
 	"naiveswitcher/internal/types"
 	"naiveswitcher/service"
-	"net/url"
 )
 
 // Switcher 处理切换请求
+// 注意：此函数在单个 goroutine 中运行，从 doSwitch channel 顺序处理请求
+// 使用原子标志避免并发切换，如果正在切换中则跳过新请求
 func Switcher(state *types.GlobalState, cfg *config.Config, doSwitch <-chan types.SwitchRequest) {
-	var switching bool
-	var switchingLock sync.Mutex
 	for switchReq := range doSwitch {
-		switchingLock.Lock()
-		if switching {
-			switchingLock.Unlock()
+		// 检查是否正在切换，如果是则跳过
+		if !atomic.CompareAndSwapInt32(&state.Switching, 0, 1) {
+			service.DebugF("Already switching, skipping request\n")
 			continue
 		}
-		switching = true
-		switchingLock.Unlock()
 
-		state.ErrorCount = 0
+		atomic.StoreInt32(&state.ErrorCount, 0)
 		service.DebugF("Switch request: Type=%s, Target=%s, Avoid=%s\n",
 			switchReq.Type, switchReq.TargetServer, switchReq.AvoidServer)
 
-		go func(req types.SwitchRequest) {
-			defer func() {
-				switchingLock.Lock()
-				switching = false
-				switchingLock.Unlock()
-				state.ErrorCount = 0
-				service.DebugF("Switching done\n")
-			}()
+		// 确保有可用的服务器
+		if len(state.HostUrls) == 0 {
+			state.HostUrls = append(state.HostUrls, cfg.BootstrapNode)
+		}
 
-			// 确保有可用的服务器
-			if len(state.HostUrls) == 0 {
-				state.HostUrls = append(state.HostUrls, cfg.BootstrapNode)
-			}
+		var err error
+		switch switchReq.Type {
+		case "select":
+			err = ProcessSelectRequest(state, switchReq)
+		case "avoid":
+			state.HostUrls, err = HandleSwitch(state, cfg, state.HostUrls, switchReq.AvoidServer)
+		case "auto":
+			state.HostUrls, err = HandleSwitch(state, cfg, state.HostUrls, "")
+		default:
+			err = fmt.Errorf("unknown switch type: %s", switchReq.Type)
+		}
 
-			var err error
-			switch req.Type {
-			case "select":
-				err = ProcessSelectRequest(state, req)
-			case "avoid":
-				state.HostUrls, err = HandleSwitch(state, cfg, state.HostUrls, req.AvoidServer)
-			case "auto":
-				state.HostUrls, err = HandleSwitch(state, cfg, state.HostUrls, "")
-			default:
-				err = fmt.Errorf("unknown switch type: %s", req.Type)
-			}
+		if err != nil {
+			service.DebugF("Error switching: %v\n", err)
+		}
 
-			if err != nil {
-				service.DebugF("Error switching: %v\n", err)
-			}
-		}(switchReq)
+		atomic.StoreInt32(&state.ErrorCount, 0)
+		atomic.StoreInt32(&state.Switching, 0) // 重置切换标志
+		service.DebugF("Switching done\n")
 	}
 }
 
@@ -69,7 +61,9 @@ func HandleSwitch(state *types.GlobalState, cfg *config.Config, oldHostUrls []st
 		if err != nil {
 			service.DebugF("Error parsing dead server URL: %v\n", err)
 		} else {
+			state.ServerDownPriorityMutex.Lock()
 			state.ServerDownPriority[u.Hostname()]++
+			state.ServerDownPriorityMutex.Unlock()
 		}
 	}
 
@@ -80,8 +74,10 @@ func HandleSwitch(state *types.GlobalState, cfg *config.Config, oldHostUrls []st
 		hostUrls = oldHostUrls
 	}
 
-	// 选择最佳服务器
+	// 选择最佳服务器（需要读锁保护）
+	state.ServerDownPriorityMutex.RLock()
 	newFastestUrl, err := service.Fastest(hostUrls, state.ServerDownPriority, deadServer)
+	state.ServerDownPriorityMutex.RUnlock()
 	if err != nil {
 		service.DebugF("Error choosing fastest: %v\n", err)
 		return nil, err

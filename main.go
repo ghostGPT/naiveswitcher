@@ -4,7 +4,6 @@ import (
 	"context"
 	"embed"
 	"flag"
-	"html/template"
 	"net"
 	"net/http"
 	"os/signal"
@@ -24,22 +23,15 @@ const (
 	dnsResolverTimeoutMs = 5000  // Timeout (ms) for the DNS resolver (optional)
 )
 
-//go:embed templates/*.html
-var templatesFS embed.FS
+//go:embed web/*
+var staticFS embed.FS
 
 var (
-	version   string = "888.888.888"
-	templates *template.Template
-	cfg       = config.NewConfig(version)
+	version string = "888.888.888"
+	cfg     = config.NewConfig(version)
 )
 
 func init() {
-	var err error
-	templates, err = template.ParseFS(templatesFS, "templates/*.html")
-	if err != nil {
-		panic("Failed to load embedded templates: " + err.Error())
-	}
-
 	dialer := &net.Dialer{
 		Resolver: &net.Resolver{
 			PreferGo: true,
@@ -125,7 +117,15 @@ func main() {
 	}()
 
 	go server.ServeTCP(state, l, doSwitch)
-	go server.ServeWeb(state, cfg, templates, doSwitch, doCheckUpdate)
+
+	// Create sub-filesystem for the web directory
+	webSubFS, err := staticFS.ReadDir("web")
+	if err != nil {
+		panic("Failed to access web directory: " + err.Error())
+	}
+	_ = webSubFS // Just check it exists
+
+	go server.ServeWeb(state, cfg, http.FS(staticFS), doSwitch, doCheckUpdate)
 
 	<-ctx.Done()
 	println("Shutting down")
@@ -150,13 +150,50 @@ func main() {
 			state.NaiveCmdCancel()
 			state.NaiveCmdCancel = nil
 		}
-		// 强制杀死进程
+
+		// 尝试优雅终止进程
 		if state.NaiveCmd.Process != nil {
-			if err := state.NaiveCmd.Process.Kill(); err != nil {
-				println("Error killing naive process: ", err)
+			pid := state.NaiveCmd.Process.Pid
+
+			// 先尝试发送 SIGTERM 到整个进程组
+			pgid := pid // 进程组ID默认等于进程ID
+			if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
+				service.DebugF("Error sending SIGTERM to process group (PGID: %d): %v, trying single process\n", pgid, err)
+				if err := state.NaiveCmd.Process.Signal(syscall.SIGTERM); err != nil {
+					service.DebugF("Error sending SIGTERM to naive process (PID: %d): %v\n", pid, err)
+				} else {
+					println("Sent SIGTERM to naive process (PID:", pid, ")")
+				}
+			} else {
+				println("Sent SIGTERM to process group (PGID:", pgid, ")")
+			}
+
+			// 等待进程退出，带超时机制
+			done := make(chan error, 1)
+			go func() {
+				done <- state.NaiveCmd.Wait()
+			}()
+
+			// 等待最多3秒（shutdown时可以多给一点时间）
+			select {
+			case err := <-done:
+				if err != nil {
+					println("Naive process exited with error:", err)
+				} else {
+					println("Naive process exited gracefully")
+				}
+			case <-time.After(3 * time.Second):
+				println("Naive process did not exit after SIGTERM, sending SIGKILL to process group")
+				if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
+					service.DebugF("Error sending SIGKILL to process group (PGID: %d): %v, trying single process\n", pgid, err)
+					if err := state.NaiveCmd.Process.Kill(); err != nil {
+						println("Error killing naive process:", err)
+					}
+				}
+				<-done
 			}
 		}
-		state.NaiveCmd.Wait()
+
 		state.NaiveCmd = nil
 	}
 

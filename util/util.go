@@ -13,7 +13,7 @@ type HostIps struct {
 
 func BatchLookupURLsIP(hostUrls []string) map[string]HostIps {
 	hostIps := make(map[string]HostIps)
-	ihLock := new(sync.Mutex)
+	hostIpsLock := new(sync.Mutex)
 
 	wg := new(sync.WaitGroup)
 	wg.Add(len(hostUrls))
@@ -24,9 +24,16 @@ func BatchLookupURLsIP(hostUrls []string) map[string]HostIps {
 			if err != nil {
 				return
 			}
-			if _, ok := hostIps[u.Hostname()]; ok {
+
+			// 检查是否已存在需要加读锁
+			hostIpsLock.Lock()
+			_, exists := hostIps[u.Hostname()]
+			hostIpsLock.Unlock()
+
+			if exists {
 				return
 			}
+
 			ip, err := net.LookupIP(u.Hostname())
 			if err != nil {
 				return
@@ -38,11 +45,15 @@ func BatchLookupURLsIP(hostUrls []string) map[string]HostIps {
 			for _, ipAddr := range ip {
 				ips = append(ips, ipAddr.String())
 			}
-			ihLock.Lock()
-			defer ihLock.Unlock()
-			hostIps[u.Hostname()] = HostIps{
-				URL: _hostUrl,
-				IPs: ips,
+
+			// 写入前再次检查（double-check），避免重复查询后重复写入
+			hostIpsLock.Lock()
+			defer hostIpsLock.Unlock()
+			if _, exists := hostIps[u.Hostname()]; !exists {
+				hostIps[u.Hostname()] = HostIps{
+					URL: _hostUrl,
+					IPs: ips,
+				}
 			}
 		}(hostUrl)
 	}
