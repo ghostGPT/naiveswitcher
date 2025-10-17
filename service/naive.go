@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 
 	"golang.org/x/mod/semver"
 
@@ -29,10 +28,7 @@ func NaiveCmd(state *types.GlobalState, proxy string) (*exec.Cmd, context.Cancel
 	cmd := exec.CommandContext(ctx, BasePath+"/"+Naive, "--listen=socks://"+UpstreamListenPort, "--proxy="+proxy)
 
 	// 设置进程组，确保可以杀死整个进程树
-	// 在 Unix 系统上，设置 Setpgid = true 会创建新的进程组
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
+	cmd.SysProcAttr = getSysProcAttr()
 
 	return cmd, cancel, nil
 }

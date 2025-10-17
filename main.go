@@ -6,8 +6,6 @@ import (
 	"flag"
 	"net"
 	"net/http"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"naiveswitcher/internal/config"
@@ -52,7 +50,7 @@ func init() {
 func main() {
 	// 创建应用程序上下文
 	ctxWithCancel, gracefulShutdown := context.WithCancel(context.Background())
-	ctx, stop := signal.NotifyContext(ctxWithCancel, syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := setupSignalHandler(ctxWithCancel)
 	defer stop()
 
 	state := &types.GlobalState{
@@ -154,44 +152,8 @@ func main() {
 		// 尝试优雅终止进程
 		if state.NaiveCmd.Process != nil {
 			pid := state.NaiveCmd.Process.Pid
-
-			// 先尝试发送 SIGTERM 到整个进程组
-			pgid := pid // 进程组ID默认等于进程ID
-			if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
-				service.DebugF("Error sending SIGTERM to process group (PGID: %d): %v, trying single process\n", pgid, err)
-				if err := state.NaiveCmd.Process.Signal(syscall.SIGTERM); err != nil {
-					service.DebugF("Error sending SIGTERM to naive process (PID: %d): %v\n", pid, err)
-				} else {
-					println("Sent SIGTERM to naive process (PID:", pid, ")")
-				}
-			} else {
-				println("Sent SIGTERM to process group (PGID:", pgid, ")")
-			}
-
-			// 等待进程退出，带超时机制
-			done := make(chan error, 1)
-			go func() {
-				done <- state.NaiveCmd.Wait()
-			}()
-
-			// 等待最多3秒（shutdown时可以多给一点时间）
-			select {
-			case err := <-done:
-				if err != nil {
-					println("Naive process exited with error:", err)
-				} else {
-					println("Naive process exited gracefully")
-				}
-			case <-time.After(3 * time.Second):
-				println("Naive process did not exit after SIGTERM, sending SIGKILL to process group")
-				if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil {
-					service.DebugF("Error sending SIGKILL to process group (PGID: %d): %v, trying single process\n", pgid, err)
-					if err := state.NaiveCmd.Process.Kill(); err != nil {
-						println("Error killing naive process:", err)
-					}
-				}
-				<-done
-			}
+			println("Terminating naive process (PID:", pid, ")")
+			switcher.KillProcessGroup(state, pid)
 		}
 
 		state.NaiveCmd = nil
