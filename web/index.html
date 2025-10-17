@@ -620,7 +620,9 @@
         // Update countdown display
         function updateCountdown() {
             const countdownEl = document.getElementById('refresh-countdown');
-            countdownEl.textContent = countdown + 's';
+            if (countdownEl) {
+                countdownEl.textContent = countdown + 's';
+            }
 
             if (countdown <= 0) {
                 countdown = 3;
@@ -636,9 +638,12 @@
                 const response = await fetch('/api/status');
                 const result = await response.json();
 
-                if (result.success) {
+                if (result.success && result.data) {
                     currentData = result.data;
+                    console.log('Fetched data:', currentData);
                     updateUI();
+                } else {
+                    console.error('API returned unsuccessful or no data:', result);
                 }
             } catch (error) {
                 console.error('Error fetching status:', error);
@@ -647,74 +652,107 @@
 
         // Update UI with current data
         function updateUI() {
-            const data = currentData;
+            const data = currentData || {};
+            console.log('Updating UI with data:', data);
 
             // Current server
-            document.getElementById('current-server').textContent = data.current_server || 'Unknown';
+            const currentServerEl = document.getElementById('current-server');
+            if (currentServerEl) {
+                currentServerEl.textContent = data.current_server || 'Unknown';
+            }
 
             // Status indicator
             const indicator = document.getElementById('server-status-indicator');
             const errorCount = data.error_count || 0;
-            indicator.className = 'status-indicator ' +
-                (errorCount > 5 ? 'error' : errorCount > 0 ? 'warning' : 'online');
+            if (indicator) {
+                indicator.className = 'status-indicator ' +
+                    (errorCount > 5 ? 'error' : errorCount > 0 ? 'warning' : 'online');
+            }
 
             // Uptime
-            document.getElementById('uptime').textContent = data.uptime || '--';
+            const uptimeEl = document.getElementById('uptime');
+            if (uptimeEl) {
+                uptimeEl.textContent = data.uptime || '--';
+            }
 
             // Auto switch status
             autoSwitchPaused = data.auto_switch_paused || false;
             const autoSwitchStatus = document.getElementById('auto-switch-status');
-            autoSwitchStatus.innerHTML = `
-                <span class="status-indicator ${autoSwitchPaused ? 'warning' : 'online'}"></span>
-                <span class="${autoSwitchPaused ? 'warning-text' : 'success-text'}">
-                    ${autoSwitchPaused ? 'Paused' : 'Running'}
-                </span>
-            `;
+            if (autoSwitchStatus) {
+                autoSwitchStatus.innerHTML = `
+                    <span class="status-indicator ${autoSwitchPaused ? 'warning' : 'online'}"></span>
+                    <span class="${autoSwitchPaused ? 'warning-text' : 'success-text'}">
+                        ${autoSwitchPaused ? 'Paused' : 'Running'}
+                    </span>
+                `;
+            }
 
             // Update button text
             const autoSwitchBtn = document.getElementById('auto-switch-btn');
-            autoSwitchBtn.textContent = autoSwitchPaused ? 'Resume Auto Switch' : 'Pause Auto Switch';
-            autoSwitchBtn.className = autoSwitchPaused ? 'btn success' : 'btn secondary';
+            if (autoSwitchBtn) {
+                autoSwitchBtn.textContent = autoSwitchPaused ? 'Resume Auto Switch' : 'Pause Auto Switch';
+                autoSwitchBtn.className = autoSwitchPaused ? 'btn success' : 'btn secondary';
+            }
 
             // Error count
             const errorCountEl = document.getElementById('error-count');
-            errorCountEl.textContent = errorCount;
-            errorCountEl.className = 'metric-value ' +
-                (errorCount > 5 ? 'error-text' : errorCount > 0 ? 'warning-text' : 'success-text');
-
-            // Goroutine count
-            document.getElementById('goroutine-count').textContent = data.goroutine_count || '--';
-
-            // Memory usage
-            if (data.memory_usage_mb) {
-                document.getElementById('memory-usage').textContent = data.memory_usage_mb + ' MB';
+            if (errorCountEl) {
+                errorCountEl.textContent = errorCount;
+                errorCountEl.className = 'metric-value ' +
+                    (errorCount > 5 ? 'error-text' : errorCount > 0 ? 'warning-text' : 'success-text');
             }
 
-            if (data.memory_alloc_mb) {
-                document.getElementById('memory-alloc').textContent = data.memory_alloc_mb + ' MB';
+            // Goroutine count
+            const goroutineEl = document.getElementById('goroutine-count');
+            if (goroutineEl) {
+                goroutineEl.textContent = data.goroutine_count || '--';
+            }
+
+            // Memory usage
+            const memoryUsageEl = document.getElementById('memory-usage');
+            if (memoryUsageEl) {
+                if (data.memory_usage_mb) {
+                    memoryUsageEl.textContent = data.memory_usage_mb + ' MB';
+                } else {
+                    memoryUsageEl.textContent = '--';
+                }
             }
 
             // Versions
-            document.getElementById('naive-version').textContent = data.naive_version || '--';
-            document.getElementById('switcher-version').textContent = data.switcher_version || '--';
+            const naiveVersionEl = document.getElementById('naive-version');
+            if (naiveVersionEl) {
+                naiveVersionEl.textContent = data.naive_version || '--';
+            }
+
+            const switcherVersionEl = document.getElementById('switcher-version');
+            if (switcherVersionEl) {
+                switcherVersionEl.textContent = data.switcher_version || '--';
+            }
 
             // Last update time
-            document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+            const lastUpdateEl = document.getElementById('last-update');
+            if (lastUpdateEl) {
+                lastUpdateEl.textContent = new Date().toLocaleTimeString();
+            }
 
             // Down stats
-            const downStats = data.down_stats || {};
-            let downStatsText = '';
-            if (Object.keys(downStats).length === 0) {
-                downStatsText = 'No server failures recorded';
-            } else {
-                for (const [server, count] of Object.entries(downStats)) {
-                    downStatsText += `${server}: ${count}\n`;
+            const downStatsEl = document.getElementById('down-stats');
+            if (downStatsEl) {
+                const downStats = data.down_stats || {};
+                let downStatsText = '';
+                if (Object.keys(downStats).length === 0) {
+                    downStatsText = 'No server failures recorded';
+                } else {
+                    for (const [server, count] of Object.entries(downStats)) {
+                        downStatsText += `${server}: ${count}\n`;
+                    }
                 }
+                downStatsEl.textContent = downStatsText;
             }
-            document.getElementById('down-stats').textContent = downStatsText;
 
             // Available servers
             const serverSelect = document.getElementById('server-select');
+            if (!serverSelect) return;
             const currentServer = data.current_server;
             const servers = data.available_servers || [];
 
