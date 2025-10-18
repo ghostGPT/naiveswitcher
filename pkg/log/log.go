@@ -1,10 +1,12 @@
-package service
+package log
 
 import (
 	"fmt"
 	"io"
 	"sync"
 	"time"
+
+	"naiveswitcher/pkg/common"
 )
 
 var (
@@ -14,7 +16,7 @@ var (
 )
 
 func DebugF(format string, args ...interface{}) {
-	if !Debug {
+	if !common.Debug {
 		return
 	}
 	format = fmt.Sprintf("[%s] %s", time.Now().In(time.Local).Format(time.DateTime), format)

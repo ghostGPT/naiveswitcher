@@ -11,7 +11,10 @@ import (
 
 	"naiveswitcher/internal/config"
 	"naiveswitcher/internal/types"
-	"naiveswitcher/service"
+	"naiveswitcher/pkg/common"
+	"naiveswitcher/pkg/github"
+	"naiveswitcher/pkg/log"
+	"naiveswitcher/pkg/naive"
 )
 
 // Updater 处理更新检查
@@ -21,7 +24,7 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 	for range signal {
 		// 检查是否正在更新，如果是则跳过
 		if !atomic.CompareAndSwapInt32(&state.Checking, 0, 1) {
-			service.DebugF("Already checking for updates, skipping request\n")
+			log.DebugF("Already checking for updates, skipping request\n")
 			continue
 		}
 
@@ -32,28 +35,28 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 			// 检查应用是否正在关闭
 			select {
 			case <-state.AppContext.Done():
-				service.DebugF("Application is shutting down, skipping naive update check\n")
+				log.DebugF("Application is shutting down, skipping naive update check\n")
 				return
 			default:
 			}
 
-			service.DebugF("Checking for naive update\n")
+			log.DebugF("Checking for naive update\n")
 			ctx, cancel := context.WithTimeout(context.Background(), (time.Duration(config.AutoSwitchDuration/2))*time.Minute)
 			defer cancel()
 
-			latestNaiveVersion, err := service.GitHubCheckGetLatestRelease(ctx, "klzgrad", "naiveproxy", service.Naive)
+			latestNaiveVersion, err := github.GitHubCheckGetLatestRelease(ctx, "klzgrad", "naiveproxy", common.Naive)
 			if err != nil {
-				service.DebugF("Error getting latest remote naive version: %v\n", err)
+				log.DebugF("Error getting latest remote naive version: %v\n", err)
 				return
 			}
 			if latestNaiveVersion == nil {
-				service.DebugF("No new version\n")
+				log.DebugF("No new version\n")
 				return
 			}
 
-			newNaive, err := service.GitHubDownloadAsset(ctx, *latestNaiveVersion)
+			newNaive, err := github.GitHubDownloadAsset(ctx, *latestNaiveVersion)
 			if err != nil {
-				service.DebugF("Error downloading asset: %v\n", err)
+				log.DebugF("Error downloading asset: %v\n", err)
 				return
 			}
 
@@ -71,30 +74,30 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 				// 使用 KillProcessGroup 终止进程
 				if state.NaiveCmd.Process != nil {
 					pid := state.NaiveCmd.Process.Pid
-					service.KillProcessGroup(state, pid)
+					naive.KillProcessGroup(state, pid)
 				}
 				state.NaiveCmd = nil
 			}
 
 			// 2. 更新二进制文件
-			os.Remove(service.BasePath + "/" + service.Naive)
-			service.Naive = newNaive
+			os.Remove(common.BasePath + "/" + common.Naive)
+			common.Naive = newNaive
 
 			// 3. 启动新进程（检查是否正在关闭）
 			select {
 			case <-state.AppContext.Done():
-				service.DebugF("Application is shutting down, skipping naive restart after update\n")
+				log.DebugF("Application is shutting down, skipping naive restart after update\n")
 				return
 			default:
 			}
 
-			state.NaiveCmd, state.NaiveCmdCancel, err = service.NaiveCmd(state, state.FastestUrl)
+			state.NaiveCmd, state.NaiveCmdCancel, err = naive.NaiveCmd(state, state.FastestUrl)
 			if err != nil {
-				service.DebugF("Error creating naive command after update: %v\n", err)
+				log.DebugF("Error creating naive command after update: %v\n", err)
 				return
 			}
 			if err := state.NaiveCmd.Start(); err != nil {
-				service.DebugF("Error starting naive after update: %v\n", err)
+				log.DebugF("Error starting naive after update: %v\n", err)
 				// 如果启动失败，取消 context 释放资源
 				if state.NaiveCmdCancel != nil {
 					state.NaiveCmdCancel()
@@ -103,42 +106,42 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 				state.NaiveCmd = nil
 				return
 			}
-			service.DebugF("Updated to %s (PID: %d)\n", service.Naive, state.NaiveCmd.Process.Pid)
+			log.DebugF("Updated to %s (PID: %d)\n", common.Naive, state.NaiveCmd.Process.Pid)
 		}()
 
 		go func() {
 			// 检查应用是否正在关闭
 			select {
 			case <-state.AppContext.Done():
-				service.DebugF("Application is shutting down, skipping self-update check\n")
+				log.DebugF("Application is shutting down, skipping self-update check\n")
 				return
 			default:
 			}
 
-			service.DebugF("Checking for naiveswitcher self-update from repo: %s\n", config.UpdateRepo)
+			log.DebugF("Checking for naiveswitcher self-update from repo: %s\n", config.UpdateRepo)
 			v := semver.MustParse(config.Version)
-			service.DebugF("Current naiveswitcher version: %s\n", config.Version)
+			log.DebugF("Current naiveswitcher version: %s\n", config.Version)
 
 			latest, err := selfupdate.UpdateSelf(v, config.UpdateRepo)
 			if err != nil {
-				service.DebugF("NaiveSwitcher update check failed: %v\n", err)
+				log.DebugF("NaiveSwitcher update check failed: %v\n", err)
 				return
 			}
 
 			// 检查返回值
 			if latest == nil {
-				service.DebugF("No naiveswitcher update information from GitHub\n")
+				log.DebugF("No naiveswitcher update information from GitHub\n")
 				return
 			}
 
-			service.DebugF("NaiveSwitcher version comparison - Current: %s, GitHub latest: %s\n", v, latest.Version)
+			log.DebugF("NaiveSwitcher version comparison - Current: %s, GitHub latest: %s\n", v, latest.Version)
 
 			if latest.Version.LTE(v) {
-				service.DebugF("NaiveSwitcher is up to date (current: %s >= latest: %s)\n", config.Version, latest.Version)
+				log.DebugF("NaiveSwitcher is up to date (current: %s >= latest: %s)\n", config.Version, latest.Version)
 			} else {
-				service.DebugF("NaiveSwitcher updated from %s to %s\n", config.Version, latest.Version)
-				service.DebugF("Release notes:\n%s\n", latest.ReleaseNotes)
-				service.DebugF("Triggering graceful shutdown for restart...\n")
+				log.DebugF("NaiveSwitcher updated from %s to %s\n", config.Version, latest.Version)
+				log.DebugF("Release notes:\n%s\n", latest.ReleaseNotes)
+				log.DebugF("Triggering graceful shutdown for restart...\n")
 				gracefulShutdown()
 			}
 		}()

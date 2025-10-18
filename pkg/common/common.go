@@ -1,4 +1,4 @@
-package service
+package common
 
 import (
 	"os"
@@ -28,10 +28,6 @@ func Init() {
 		panic(err) // note there is a bit of a catch-22 here
 	}
 	if err := debug.SetCrashOutput(f, debug.CrashOptions{}); err != nil {
-		panic(err)
-	}
-	Naive, err = getLatestLocalNaiveVersion(getNaiveList())
-	if err != nil {
 		panic(err)
 	}
 }

@@ -1,4 +1,4 @@
-package service
+package subscription
 
 import (
 	"bufio"
@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"naiveswitcher/pkg/log"
 	"naiveswitcher/util"
 )
 
@@ -33,7 +34,7 @@ func Subscription(subscribeURL string) ([]string, error) {
 	}
 
 	userInfo := resp.Header.Get("Subscription-Userinfo")
-	DebugF("Userinfo: %s\n", userInfo)
+	log.DebugF("Userinfo: %s\n", userInfo)
 
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
@@ -153,7 +154,7 @@ func Fastest(hostUrls []string, serverPriority map[string]int, deadServer string
 	for res := range results {
 		resultCount++
 		if res.err != nil {
-			DebugF("check activity failed, host: %s, error: %s\n", res.host, res.err)
+			log.DebugF("check activity failed, host: %s, error: %s\n", res.host, res.err)
 		} else {
 			fastest = append(fastest, res.host)
 		}

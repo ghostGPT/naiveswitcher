@@ -4,7 +4,8 @@ import (
 	"errors"
 
 	"naiveswitcher/internal/types"
-	"naiveswitcher/service"
+	"naiveswitcher/pkg/log"
+	"naiveswitcher/pkg/naive"
 )
 
 // StopNaive 安全地停止 naive 进程（需要外部已获取锁）
@@ -22,7 +23,7 @@ func stopNaiveUnsafe(state *types.GlobalState) {
 	// 2. 如果进程还在运行，尝试终止
 	if state.NaiveCmd.Process != nil {
 		pid := state.NaiveCmd.Process.Pid
-		service.KillProcessGroup(state, pid)
+		naive.KillProcessGroup(state, pid)
 	}
 
 	state.NaiveCmd = nil
@@ -33,20 +34,20 @@ func startNaiveUnsafe(state *types.GlobalState, targetServer string) error {
 	// 检查应用程序上下文是否已经取消
 	select {
 	case <-state.AppContext.Done():
-		service.DebugF("Application is shutting down, not starting naive process\n")
+		log.DebugF("Application is shutting down, not starting naive process\n")
 		return nil // 不启动新进程，但不返回错误
 	default:
 		// 继续启动进程
 	}
 
 	var err error
-	state.NaiveCmd, state.NaiveCmdCancel, err = service.NaiveCmd(state, targetServer)
+	state.NaiveCmd, state.NaiveCmdCancel, err = naive.NaiveCmd(state, targetServer)
 	if err != nil {
-		service.DebugF("Error creating naive command: %v\n", err)
+		log.DebugF("Error creating naive command: %v\n", err)
 		return err
 	}
 	if err := state.NaiveCmd.Start(); err != nil {
-		service.DebugF("Error starting naive: %v\n", err)
+		log.DebugF("Error starting naive: %v\n", err)
 		// 如果启动失败，取消 context 释放资源
 		if state.NaiveCmdCancel != nil {
 			state.NaiveCmdCancel()
@@ -55,7 +56,7 @@ func startNaiveUnsafe(state *types.GlobalState, targetServer string) error {
 		state.NaiveCmd = nil
 		return err
 	}
-	service.DebugF("Successfully started naive process (PID: %d) for server: %s\n", state.NaiveCmd.Process.Pid, targetServer)
+	log.DebugF("Successfully started naive process (PID: %d) for server: %s\n", state.NaiveCmd.Process.Pid, targetServer)
 	return nil
 }
 
@@ -94,7 +95,7 @@ func ProcessSelectRequest(state *types.GlobalState, req types.SwitchRequest) err
 		return errors.New("already connected to target server")
 	}
 
-	service.DebugF("Switching to selected server: %s\n", req.TargetServer)
+	log.DebugF("Switching to selected server: %s\n", req.TargetServer)
 
 	if err := RestartNaive(state, req.TargetServer); err != nil {
 		return err

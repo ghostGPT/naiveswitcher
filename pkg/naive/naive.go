@@ -1,4 +1,4 @@
-package service
+package naive
 
 import (
 	"context"
@@ -13,11 +13,20 @@ import (
 	"golang.org/x/mod/semver"
 
 	"naiveswitcher/internal/types"
+	"naiveswitcher/pkg/common"
+	"naiveswitcher/pkg/log"
 )
+
+// Init 初始化 naive，查找最新的本地版本
+func Init() error {
+	var err error
+	common.Naive, err = getLatestLocalNaiveVersion(getNaiveList())
+	return err
+}
 
 // naive version: naiveproxy-v130.0.6723.40-5-mac-x64
 func NaiveCmd(state *types.GlobalState, proxy string) (*exec.Cmd, context.CancelFunc, error) {
-	if Naive == "" {
+	if common.Naive == "" {
 		return nil, nil, errors.New("no naive found")
 	}
 	if proxy == "" {
@@ -25,7 +34,7 @@ func NaiveCmd(state *types.GlobalState, proxy string) (*exec.Cmd, context.Cancel
 	}
 	// 创建一个可取消的子context
 	ctx, cancel := context.WithCancel(state.AppContext)
-	cmd := exec.CommandContext(ctx, BasePath+"/"+Naive, "--listen=socks://"+UpstreamListenPort, "--proxy="+proxy)
+	cmd := exec.CommandContext(ctx, common.BasePath+"/"+common.Naive, "--listen=socks://"+common.UpstreamListenPort, "--proxy="+proxy)
 
 	// 设置进程组，确保可以杀死整个进程树
 	cmd.SysProcAttr = getSysProcAttr()
@@ -35,7 +44,7 @@ func NaiveCmd(state *types.GlobalState, proxy string) (*exec.Cmd, context.Cancel
 
 func getNaiveList() []string {
 	var naiveList []string
-	err := filepath.Walk(BasePath, func(p string, info os.FileInfo, err error) error {
+	err := filepath.Walk(common.BasePath, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -50,7 +59,7 @@ func getNaiveList() []string {
 		return nil
 	})
 	if err != nil {
-		DebugF("Error walking filepath: %v\n", err)
+		log.DebugF("Error walking filepath: %v\n", err)
 	}
 	return naiveList
 }
@@ -63,7 +72,7 @@ func getNaiveVersion(fileName string) string {
 	return "v0.0.0"
 }
 
-func getNaiveOsArchSuffix(fileName string) (string, error) {
+func GetNaiveOsArchSuffix(fileName string) (string, error) {
 	split := strings.Split(fileName, "-")
 	if len(split) > 3 {
 		return strings.Join(split[3:], "-"), nil
@@ -81,7 +90,7 @@ func getLatestLocalNaiveVersion(naiveList []string) (string, error) {
 	return naiveList[len(naiveList)-1], nil
 }
 
-func assetUrlToBinaryName(url string) string {
+func AssetUrlToBinaryName(url string) string {
 	fileName := path.Base(url)
 	if strings.HasSuffix(fileName, ".tar.xz") {
 		fileName = strings.TrimSuffix(fileName, ".tar.xz")

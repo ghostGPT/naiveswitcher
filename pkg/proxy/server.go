@@ -1,4 +1,4 @@
-package server
+package proxy
 
 import (
 	"io"
@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"naiveswitcher/internal/types"
-	"naiveswitcher/service"
+	"naiveswitcher/pkg/common"
+	"naiveswitcher/pkg/log"
 	"naiveswitcher/util"
 )
 
@@ -29,7 +30,7 @@ func ServeTCP(state *types.GlobalState, l net.Listener, doSwitch chan<- types.Sw
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			service.DebugF("Error accepting connection: %v\n", err)
+			log.DebugF("Error accepting connection: %v\n", err)
 			continue
 		}
 		go HandleConnection(state, conn, bufPool, doSwitch)
@@ -44,7 +45,7 @@ func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Poo
 	}()
 
 	if state.NaiveCmd == nil {
-		service.DebugF("No naive running\n")
+		log.DebugF("No naive running\n")
 		doSwitch <- types.SwitchRequest{Type: "auto"}
 		return
 	}
@@ -52,7 +53,7 @@ func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Poo
 	var serverDown bool = true
 	var remoteOk bool
 
-	naiveConn, err := net.DialTimeout("tcp", service.UpstreamListenPort, 3*time.Second)
+	naiveConn, err := net.DialTimeout("tcp", common.UpstreamListenPort, 3*time.Second)
 	if err == nil {
 		go func() {
 			defer func() {
@@ -74,7 +75,7 @@ func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Poo
 		// 错误过多时触发切换
 		if newCount > 10 {
 			atomic.StoreInt32(&state.ErrorCount, 0)
-			service.DebugF("Too many errors (%d), switching server\n", newCount)
+			log.DebugF("Too many errors (%d), switching server\n", newCount)
 			doSwitch <- types.SwitchRequest{
 				Type:        "avoid",
 				AvoidServer: state.FastestUrl,

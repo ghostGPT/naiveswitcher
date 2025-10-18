@@ -1,8 +1,10 @@
-package server
+package api
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"math/rand"
 	"net/http"
 	"runtime"
@@ -15,12 +17,17 @@ import (
 
 	"naiveswitcher/internal/config"
 	"naiveswitcher/internal/types"
-	"naiveswitcher/service"
+	"naiveswitcher/pkg/common"
+	"naiveswitcher/pkg/log"
+	"naiveswitcher/pkg/subscription"
 	"naiveswitcher/util"
 )
 
+//go:embed static/*
+var embeddedFiles embed.FS
+
 // ServeWeb 启动 Web 管理界面
-func ServeWeb(state *types.GlobalState, config *config.Config, staticFS http.FileSystem, doSwitch chan<- types.SwitchRequest, doCheckUpdate chan<- struct{}) {
+func ServeWeb(state *types.GlobalState, config *config.Config, doSwitch chan<- types.SwitchRequest, doCheckUpdate chan<- struct{}) {
 	// API 端点
 	http.HandleFunc("/api/switch", func(w http.ResponseWriter, r *http.Request) {
 		handleSwitchAPI(state, w, r, doSwitch)
@@ -53,13 +60,18 @@ func ServeWeb(state *types.GlobalState, config *config.Config, staticFS http.Fil
 
 	// 静态文件服务 - 提供所有前端文件（HTML, CSS, JS）
 	// 必须放在最后，这样 API 路由才能优先匹配
-	http.Handle("/", http.FileServer(http.Dir("web")))
+	// 创建子文件系统，移除 "static" 前缀
+	webFS, err := fs.Sub(embeddedFiles, "static")
+	if err != nil {
+		panic("Failed to create sub filesystem: " + err.Error())
+	}
+	http.Handle("/", http.FileServer(http.FS(webFS)))
 
 	http.ListenAndServe(config.WebPort, nil)
 }
 
 func handleSubscription(state *types.GlobalState, config *config.Config, w http.ResponseWriter, _ *http.Request) {
-	newHostUrls, err := service.Subscription(config.SubscribeURL)
+	newHostUrls, err := subscription.Subscription(config.SubscribeURL)
 	if err != nil {
 		w.Write([]byte(err.Error() + "\n"))
 	} else {
@@ -168,7 +180,7 @@ func handleStatusAPI(state *types.GlobalState, config *config.Config, w http.Res
 		"current_server":     state.FastestUrl,
 		"error_count":        atomic.LoadInt32(&state.ErrorCount),
 		"down_stats":         downStatsCopy,
-		"naive_version":      service.Naive,
+		"naive_version":      common.Naive,
 		"switcher_version":   config.Version,
 		"auto_switch_paused": paused,
 		"available_servers":  state.HostUrls,
@@ -190,7 +202,7 @@ func handleLogsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	service.WriteLog(w)
+	log.WriteLog(w)
 }
 
 // handleAutoSwitchAPI 处理自动切换的暂停/恢复

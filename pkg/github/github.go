@@ -1,4 +1,4 @@
-package service
+package github
 
 import (
 	"archive/tar"
@@ -13,6 +13,9 @@ import (
 
 	"github.com/google/go-github/v68/github"
 	"github.com/ulikunitz/xz"
+
+	"naiveswitcher/pkg/common"
+	"naiveswitcher/pkg/naive"
 )
 
 func GitHubCheckGetLatestRelease(ctx context.Context, owner string, repo string, currentVersion string) (*string, error) {
@@ -24,7 +27,7 @@ func GitHubCheckGetLatestRelease(ctx context.Context, owner string, repo string,
 	if strings.Contains(currentVersion, *releases.TagName) {
 		return nil, nil
 	}
-	currentVersionSuffix, err := getNaiveOsArchSuffix(currentVersion)
+	currentVersionSuffix, err := naive.GetNaiveOsArchSuffix(currentVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +40,7 @@ func GitHubCheckGetLatestRelease(ctx context.Context, owner string, repo string,
 }
 
 func GitHubDownloadAsset(ctx context.Context, url string) (string, error) {
-	binaryName := assetUrlToBinaryName(url)
+	binaryName := naive.AssetUrlToBinaryName(url)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -75,7 +78,7 @@ func GitHubDownloadAsset(ctx context.Context, url string) (string, error) {
 			if filepath.Base(header.Name) != "naive" {
 				continue
 			}
-			outFile, err := os.OpenFile(BasePath+"/"+binaryName, os.O_CREATE|os.O_WRONLY, 0755)
+			outFile, err := os.OpenFile(common.BasePath+"/"+binaryName, os.O_CREATE|os.O_WRONLY, 0755)
 			defer outFile.Close()
 			if err != nil {
 				return "", err

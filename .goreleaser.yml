@@ -26,7 +26,7 @@ builds:
         goarch: arm
       - goos: windows
         goarch: arm64
-    main: .
+    main: ./cmd/naiveswitcher
     binary: naiveswitcher
 universal_binaries:
   - name_template: "naiveswitcher"
