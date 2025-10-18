@@ -21,35 +21,6 @@ import (
 
 // ServeWeb 启动 Web 管理界面
 func ServeWeb(state *types.GlobalState, config *config.Config, staticFS http.FileSystem, doSwitch chan<- types.SwitchRequest, doCheckUpdate chan<- struct{}) {
-	// 主界面 - 提供静态 HTML
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		file, err := staticFS.Open("web/index.html")
-		if err != nil {
-			http.Error(w, "Unable to load index.html: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer file.Close()
-
-		// Read the file content and serve it
-		content := make([]byte, 0)
-		buf := make([]byte, 4096)
-		for {
-			n, err := file.Read(buf)
-			if n > 0 {
-				content = append(content, buf[:n]...)
-			}
-			if err != nil {
-				break
-			}
-		}
-		w.Write(content)
-	})
-
 	// API 端点
 	http.HandleFunc("/api/switch", func(w http.ResponseWriter, r *http.Request) {
 		handleSwitchAPI(state, w, r, doSwitch)
@@ -79,6 +50,10 @@ func ServeWeb(state *types.GlobalState, config *config.Config, staticFS http.Fil
 	http.HandleFunc("/p", func(w http.ResponseWriter, r *http.Request) {
 		handlePing(state, w, r)
 	})
+
+	// 静态文件服务 - 提供所有前端文件（HTML, CSS, JS）
+	// 必须放在最后，这样 API 路由才能优先匹配
+	http.Handle("/", http.FileServer(http.Dir("web")))
 
 	http.ListenAndServe(config.WebPort, nil)
 }

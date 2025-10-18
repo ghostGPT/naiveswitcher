@@ -22,7 +22,7 @@ func stopNaiveUnsafe(state *types.GlobalState) {
 	// 2. 如果进程还在运行，尝试终止
 	if state.NaiveCmd.Process != nil {
 		pid := state.NaiveCmd.Process.Pid
-		KillProcessGroup(state, pid)
+		service.KillProcessGroup(state, pid)
 	}
 
 	state.NaiveCmd = nil

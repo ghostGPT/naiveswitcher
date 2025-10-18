@@ -153,7 +153,7 @@ func main() {
 		if state.NaiveCmd.Process != nil {
 			pid := state.NaiveCmd.Process.Pid
 			println("Terminating naive process (PID:", pid, ")")
-			switcher.KillProcessGroup(state, pid)
+			service.KillProcessGroup(state, pid)
 		}
 
 		state.NaiveCmd = nil

@@ -1,563 +1,83 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NaiveSwitcher Dashboard</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔄</text></svg>">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        :root {
-            --primary: #2196F3;
-            --primary-dark: #1976D2;
-            --success: #4CAF50;
-            --warning: #FF9800;
-            --danger: #f44336;
-            --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --card-bg: rgba(255, 255, 255, 0.95);
-            --text-primary: #333;
-            --text-secondary: #666;
-            --border-color: #e0e0e0;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: var(--bg-gradient);
-            min-height: 100vh;
-            padding: 20px;
-            line-height: 1.6;
-            color: var(--text-primary);
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        .header {
-            background: var(--card-bg);
-            border-radius: 15px;
-            padding: 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 20px;
-        }
-
-        .header-left h1 {
-            font-size: 2.5em;
-            color: var(--primary);
-            margin-bottom: 5px;
-        }
-
-        .header-left .subtitle {
-            color: var(--text-secondary);
-            font-size: 1.1em;
-        }
-
-        .header-right {
-            text-align: right;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .refresh-info {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        .refresh-label {
-            font-size: 0.85em;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            font-weight: 600;
-        }
-
-        .refresh-countdown {
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 1.5em;
-            color: var(--primary);
-            font-weight: 700;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .countdown-circle {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--success);
-            animation: pulse 1s ease-in-out infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% {
-                opacity: 1;
-                transform: scale(1);
-            }
-            50% {
-                opacity: 0.5;
-                transform: scale(1.2);
-            }
-        }
-
-        .current-server-card {
-            background: linear-gradient(135deg, #f0f8ff, #e3f2fd);
-            border: 2px solid var(--primary);
-            border-radius: 12px;
-            padding: 20px 25px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 20px rgba(33, 150, 243, 0.15);
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .current-server-label {
-            font-size: 0.85em;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            font-weight: 600;
-            white-space: nowrap;
-        }
-
-        .current-server-value {
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 1.1em;
-            color: var(--primary-dark);
-            font-weight: 700;
-            word-break: break-all;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex: 1;
-        }
-
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-
-        .card {
-            background: var(--card-bg);
-            border-radius: 12px;
-            padding: 25px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-        }
-
-        .card-title {
-            font-size: 1.1em;
-            font-weight: 700;
-            margin-bottom: 20px;
-            padding-bottom: 12px;
-            border-bottom: 2px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .metric {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid #f5f5f5;
-        }
-
-        .metric:last-child {
-            border-bottom: none;
-        }
-
-        .metric-label {
-            font-size: 0.95em;
-            font-weight: 600;
-            color: var(--text-secondary);
-        }
-
-        .metric-value {
-            font-size: 0.95em;
-            font-weight: 600;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .status-indicator {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            display: inline-block;
-        }
-
-        .status-indicator.online {
-            background: var(--success);
-            box-shadow: 0 0 10px rgba(76, 175, 80, 0.4);
-        }
-
-        .status-indicator.warning {
-            background: var(--warning);
-            box-shadow: 0 0 10px rgba(255, 152, 0, 0.4);
-        }
-
-        .status-indicator.error {
-            background: var(--danger);
-            box-shadow: 0 0 10px rgba(244, 67, 54, 0.4);
-        }
-
-        .btn {
-            padding: 16px 24px;
-            border: none;
-            border-radius: 8px;
-            color: white;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            font-size: 1em;
-            text-decoration: none;
-            background: var(--primary);
-        }
-
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-        }
-
-        .btn.success {
-            background: var(--success);
-        }
-
-        .btn.warning {
-            background: var(--warning);
-        }
-
-        .btn.secondary {
-            background: #757575;
-        }
-
-        .btn.danger {
-            background: var(--danger);
-        }
-
-        .btn:disabled {
-            background: #cccccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .actions {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-top: 15px;
-        }
-
-        .full-width {
-            grid-column: 1 / -1;
-        }
-
-        .server-select {
-            width: 100%;
-            padding: 12px 16px;
-            border: 2px solid var(--border-color);
-            border-radius: 8px;
-            font-size: 0.95em;
-            font-family: 'Monaco', 'Menlo', monospace;
-            margin-bottom: 12px;
-            transition: border-color 0.3s ease;
-        }
-
-        .server-select:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
-        }
-
-        .code-block {
-            font-family: 'Monaco', 'Menlo', monospace;
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 6px;
-            font-size: 0.9em;
-            overflow-x: auto;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(5px);
-        }
-
-        .modal.active {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            animation: fadeIn 0.3s ease;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        .modal-content {
-            background: white;
-            border-radius: 15px;
-            width: 90%;
-            max-width: 900px;
-            max-height: 80vh;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-            animation: slideUp 0.3s ease;
-        }
-
-        @keyframes slideUp {
-            from {
-                transform: translateY(50px);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-
-        .modal-header {
-            padding: 20px 25px;
-            border-bottom: 2px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-            color: white;
-            border-radius: 15px 15px 0 0;
-        }
-
-        .modal-title {
-            font-size: 1.5em;
-            font-weight: 600;
-            margin: 0;
-        }
-
-        .modal-close {
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            color: white;
-            font-size: 24px;
-            cursor: pointer;
-            width: 35px;
-            height: 35px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s ease;
-        }
-
-        .modal-close:hover {
-            background: rgba(255, 255, 255, 0.3);
-            transform: rotate(90deg);
-        }
-
-        .modal-body {
-            padding: 25px;
-            overflow-y: auto;
-            flex: 1;
-        }
-
-        .logs-container {
-            background: #1e1e1e;
-            color: #d4d4d4;
-            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-            font-size: 0.85em;
-            padding: 20px;
-            border-radius: 8px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            line-height: 1.5;
-            max-height: 60vh;
-            overflow-y: auto;
-            border: 1px solid #333;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 20px;
-            color: var(--text-secondary);
-        }
-
-        .error-text {
-            color: var(--danger);
-        }
-
-        .success-text {
-            color: var(--success);
-        }
-
-        .warning-text {
-            color: var(--warning);
-        }
-
-        .metric-large {
-            font-size: 2em;
-            font-weight: 700;
-            text-align: center;
-            padding: 20px 0;
-        }
-
-        .version-badge {
-            font-family: 'Monaco', 'Menlo', monospace;
-            background: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            border: 1px solid #ddd;
-            font-size: 0.9em;
-        }
-
-        @media (max-width: 1024px) {
-            .grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        @media (max-width: 768px) {
-            body {
-                padding: 10px;
-            }
-
-            .header {
-                flex-direction: column;
-                text-align: center;
-                gap: 15px;
-            }
-
-            .header-left h1 {
-                font-size: 2em;
-            }
-
-            .header-right {
-                text-align: center;
-            }
-
-            .refresh-countdown {
-                justify-content: center;
-            }
-
-            .grid {
-                grid-template-columns: 1fr;
-            }
-
-            .actions {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .refresh-indicator {
-            display: inline-block;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-    </style>
+    <title>NaiveSwitcher 管理面板</title>
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔄</text></svg>">
+    <link rel="stylesheet" href="/style.css?v=1.0.0">
 </head>
+
 <body>
     <div class="container">
         <div class="header">
             <div class="header-left">
                 <h1>🔄 NaiveSwitcher</h1>
-                <p class="subtitle">Smart Proxy Server Management Dashboard</p>
+                <p class="subtitle">服务器自动切换管理面板</p>
             </div>
             <div class="header-right">
                 <div class="refresh-info">
-                    <div class="refresh-label">Next Refresh In</div>
+                    <div class="refresh-label">下次刷新</div>
                     <div class="refresh-countdown">
                         <span class="countdown-circle"></span>
-                        <span id="refresh-countdown">3s</span>
+                        <span id="refresh-countdown">3秒</span>
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="current-server-card">
-            <div class="current-server-label">CURRENT PROXY SERVER</div>
+            <div class="current-server-label">当前连接服务器</div>
             <div class="current-server-value">
                 <span id="server-status-indicator" class="status-indicator online"></span>
-                <span id="current-server">Loading...</span>
+                <span id="current-server">加载中...</span>
             </div>
         </div>
 
         <div class="grid">
             <div class="card">
-                <div class="card-title">📊 System Status</div>
+                <div class="card-title">📊 系统状态</div>
                 <div class="metric">
-                    <span class="metric-label">Uptime</span>
+                    <span class="metric-label">运行时长</span>
                     <span class="metric-value" id="uptime">--</span>
                 </div>
                 <div class="metric">
-                    <span class="metric-label">Auto Switch</span>
+                    <span class="metric-label">自动切换</span>
                     <span class="metric-value" id="auto-switch-status">
                         <span class="status-indicator online"></span>
-                        <span>Running</span>
+                        <span>运行中</span>
                     </span>
                 </div>
             </div>
 
             <div class="card">
-                <div class="card-title">⚠️ Error Monitoring</div>
+                <div class="card-title">⚠️ 错误监控</div>
                 <div class="metric">
-                    <span class="metric-label">Current Errors</span>
+                    <span class="metric-label">当前错误数</span>
                     <span class="metric-value" id="error-count">0</span>
                 </div>
                 <div class="metric">
-                    <span class="metric-label">Last Updated</span>
+                    <span class="metric-label">最后更新</span>
                     <span class="metric-value" id="last-update">--</span>
                 </div>
             </div>
 
             <div class="card">
-                <div class="card-title">⚙️ Runtime Metrics</div>
+                <div class="card-title">⚙️ 运行时指标</div>
                 <div class="metric">
-                    <span class="metric-label">Goroutines</span>
+                    <span class="metric-label">协程数</span>
                     <span class="metric-value" id="goroutine-count">--</span>
                 </div>
                 <div class="metric">
-                    <span class="metric-label">Memory Usage</span>
+                    <span class="metric-label">内存占用</span>
                     <span class="metric-value" id="memory-usage">--</span>
                 </div>
             </div>
 
             <div class="card">
-                <div class="card-title">ℹ️ Version Info</div>
+                <div class="card-title">ℹ️ 版本信息</div>
                 <div class="metric">
                     <span class="metric-label">Naive</span>
                     <span class="metric-value">
@@ -573,27 +93,27 @@
             </div>
 
             <div class="card full-width">
-                <div class="card-title">📉 Server Down Statistics</div>
-                <div class="code-block" id="down-stats">Loading...</div>
+                <div class="card-title">📉 服务器故障统计</div>
+                <div class="code-block" id="down-stats">加载中...</div>
             </div>
 
             <div class="card full-width">
-                <div class="card-title">⚡ Quick Actions</div>
+                <div class="card-title">⚡ 快速操作</div>
                 <div class="actions">
-                    <button class="btn" onclick="switchToBestServer()">🔀 Switch to Best Server</button>
-                    <button class="btn success" id="auto-switch-btn" onclick="toggleAutoSwitch()">⏸️ Pause Auto Switch</button>
-                    <button class="btn warning" onclick="checkUpdates()">🔄 Check Updates</button>
-                    <button class="btn secondary" onclick="viewLogs()">📋 View Logs</button>
+                    <button class="btn" onclick="switchToBestServer()">🔀 切换到最佳服务器</button>
+                    <button class="btn success" id="auto-switch-btn" onclick="toggleAutoSwitch()">⏸️ 暂停自动切换</button>
+                    <button class="btn warning" onclick="checkUpdates()">🔄 检查更新</button>
+                    <button class="btn secondary" onclick="viewLogs()">📋 查看日志</button>
                 </div>
             </div>
 
             <div class="card full-width">
-                <div class="card-title">🎯 Manual Server Selection</div>
+                <div class="card-title">🎯 手动选择服务器</div>
                 <select id="server-select" class="server-select">
-                    <option value="">-- Select a server to switch to --</option>
+                    <option value="">-- 选择要切换的服务器 --</option>
                 </select>
                 <button class="btn full-width" id="switch-btn" onclick="switchToSelectedServer()" disabled>
-                    Switch to Selected Server
+                    切换到所选服务器
                 </button>
             </div>
         </div>
@@ -603,349 +123,18 @@
     <div id="logs-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 class="modal-title">System Logs</h2>
+                <h2 class="modal-title">系统日志</h2>
                 <button class="modal-close" onclick="closeLogsModal()">&times;</button>
             </div>
             <div class="modal-body">
                 <div id="logs-content" class="logs-container">
-                    <div class="loading">Loading logs...</div>
+                    <div class="loading">加载日志中...</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script>
-        let currentData = {};
-        let autoSwitchPaused = false;
-        let countdown = 3;
-        let countdownTimer = null;
-
-        // Update countdown display
-        function updateCountdown() {
-            const countdownEl = document.getElementById('refresh-countdown');
-            if (countdownEl) {
-                countdownEl.textContent = countdown + 's';
-            }
-
-            if (countdown <= 0) {
-                countdown = 3;
-                fetchStatus();
-            } else {
-                countdown--;
-            }
-        }
-
-        // Fetch status from API
-        async function fetchStatus() {
-            try {
-                const response = await fetch('/api/status');
-                const result = await response.json();
-
-                if (result.success && result.data) {
-                    currentData = result.data;
-                    console.log('Fetched data:', currentData);
-                    updateUI();
-                } else {
-                    console.error('API returned unsuccessful or no data:', result);
-                }
-            } catch (error) {
-                console.error('Error fetching status:', error);
-            }
-        }
-
-        // Update UI with current data
-        function updateUI() {
-            const data = currentData || {};
-            console.log('Updating UI with data:', data);
-
-            // Current server
-            const currentServerEl = document.getElementById('current-server');
-            if (currentServerEl) {
-                currentServerEl.textContent = data.current_server || 'Unknown';
-            }
-
-            // Status indicator
-            const indicator = document.getElementById('server-status-indicator');
-            const errorCount = data.error_count || 0;
-            if (indicator) {
-                indicator.className = 'status-indicator ' +
-                    (errorCount > 5 ? 'error' : errorCount > 0 ? 'warning' : 'online');
-            }
-
-            // Uptime
-            const uptimeEl = document.getElementById('uptime');
-            if (uptimeEl) {
-                uptimeEl.textContent = data.uptime || '--';
-            }
-
-            // Auto switch status
-            autoSwitchPaused = data.auto_switch_paused || false;
-            const autoSwitchStatus = document.getElementById('auto-switch-status');
-            if (autoSwitchStatus) {
-                autoSwitchStatus.innerHTML = `
-                    <span class="status-indicator ${autoSwitchPaused ? 'warning' : 'online'}"></span>
-                    <span class="${autoSwitchPaused ? 'warning-text' : 'success-text'}">
-                        ${autoSwitchPaused ? 'Paused' : 'Running'}
-                    </span>
-                `;
-            }
-
-            // Update button text
-            const autoSwitchBtn = document.getElementById('auto-switch-btn');
-            if (autoSwitchBtn) {
-                autoSwitchBtn.textContent = autoSwitchPaused ? '▶️ Resume Auto Switch' : '⏸️ Pause Auto Switch';
-                autoSwitchBtn.className = autoSwitchPaused ? 'btn success' : 'btn secondary';
-            }
-
-            // Error count
-            const errorCountEl = document.getElementById('error-count');
-            if (errorCountEl) {
-                errorCountEl.textContent = errorCount;
-                errorCountEl.className = 'metric-value ' +
-                    (errorCount > 5 ? 'error-text' : errorCount > 0 ? 'warning-text' : 'success-text');
-            }
-
-            // Goroutine count
-            const goroutineEl = document.getElementById('goroutine-count');
-            if (goroutineEl) {
-                goroutineEl.textContent = data.goroutine_count || '--';
-            }
-
-            // Memory usage
-            const memoryUsageEl = document.getElementById('memory-usage');
-            if (memoryUsageEl) {
-                if (data.memory_usage_mb) {
-                    memoryUsageEl.textContent = data.memory_usage_mb + ' MB';
-                } else {
-                    memoryUsageEl.textContent = '--';
-                }
-            }
-
-            // Versions
-            const naiveVersionEl = document.getElementById('naive-version');
-            if (naiveVersionEl) {
-                const naiveVersion = data.naive_version || '--';
-                if (naiveVersion !== '--') {
-                    const match = naiveVersion.match(/(v[\d.]+(?:-\d+)?)-/);
-                    naiveVersionEl.textContent = match ? match[1] : naiveVersion;
-                } else {
-                    naiveVersionEl.textContent = naiveVersion;
-                }
-            }
-
-            const switcherVersionEl = document.getElementById('switcher-version');
-            if (switcherVersionEl) {
-                const switcherVersion = data.switcher_version || '--';
-                // Add 'v' prefix if not present and it's a valid version number
-                if (switcherVersion !== '--' && !switcherVersion.startsWith('v')) {
-                    switcherVersionEl.textContent = 'v' + switcherVersion;
-                } else {
-                    switcherVersionEl.textContent = switcherVersion;
-                }
-            }
-
-            // Last update time
-            const lastUpdateEl = document.getElementById('last-update');
-            if (lastUpdateEl) {
-                lastUpdateEl.textContent = new Date().toLocaleTimeString();
-            }
-
-            // Down stats
-            const downStatsEl = document.getElementById('down-stats');
-            if (downStatsEl) {
-                const downStats = data.down_stats || {};
-                let downStatsText = '';
-                if (Object.keys(downStats).length === 0) {
-                    downStatsText = 'No server failures recorded';
-                } else {
-                    for (const [server, count] of Object.entries(downStats)) {
-                        downStatsText += `${server}: ${count}\n`;
-                    }
-                }
-                downStatsEl.textContent = downStatsText;
-            }
-
-            // Available servers
-            const serverSelect = document.getElementById('server-select');
-            if (!serverSelect) return;
-            const currentServer = data.current_server;
-            const servers = data.available_servers || [];
-
-            // Preserve current selection
-            const currentSelection = serverSelect.value;
-
-            serverSelect.innerHTML = '<option value="">-- Select a server to switch to --</option>';
-            servers.forEach(server => {
-                const option = document.createElement('option');
-                option.value = server;
-                option.textContent = server + (server === currentServer ? ' (Current)' : '');
-                if (server === currentServer) {
-                    option.disabled = true;
-                }
-                serverSelect.appendChild(option);
-            });
-
-            // Restore selection if still valid
-            if (currentSelection && servers.includes(currentSelection)) {
-                serverSelect.value = currentSelection;
-            }
-
-            updateSwitchButton();
-        }
-
-        // Switch to best server
-        async function switchToBestServer() {
-            if (!confirm('Switch to the best available server?')) return;
-
-            try {
-                const response = await fetch('/api/switch', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        type: 'avoid',
-                        avoid_server: currentData.current_server
-                    })
-                });
-
-                const result = await response.json();
-                if (result.success) {
-                    alert('Switching to best server...');
-                    setTimeout(fetchStatus, 2000);
-                } else {
-                    alert('Error: ' + (result.error || 'Unknown error'));
-                }
-            } catch (error) {
-                alert('Error switching server: ' + error.message);
-            }
-        }
-
-        // Toggle auto switch
-        async function toggleAutoSwitch() {
-            const action = autoSwitchPaused ? 'resume' : 'pause';
-
-            try {
-                const response = await fetch('/api/auto-switch', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action })
-                });
-
-                const result = await response.json();
-                if (result.success) {
-                    fetchStatus();
-                } else {
-                    alert('Error: ' + (result.error || 'Unknown error'));
-                }
-            } catch (error) {
-                alert('Error toggling auto switch: ' + error.message);
-            }
-        }
-
-        // Check for updates
-        async function checkUpdates() {
-            try {
-                const response = await fetch('/api/update', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-
-                const result = await response.json();
-                if (result.success) {
-                    alert('Update check initiated. Check logs for results.');
-                } else {
-                    alert('Error: ' + (result.error || 'Unknown error'));
-                }
-            } catch (error) {
-                alert('Error checking updates: ' + error.message);
-            }
-        }
-
-        // View logs
-        function viewLogs() {
-            const modal = document.getElementById('logs-modal');
-            modal.classList.add('active');
-            loadLogs();
-        }
-
-        // Close logs modal
-        function closeLogsModal() {
-            document.getElementById('logs-modal').classList.remove('active');
-        }
-
-        // Load logs
-        async function loadLogs() {
-            const logsContent = document.getElementById('logs-content');
-            logsContent.innerHTML = '<div class="loading">Loading logs...</div>';
-
-            try {
-                const response = await fetch('/api/logs');
-                const logs = await response.text();
-
-                if (logs.trim() === '') {
-                    logsContent.innerHTML = '<div class="loading">No logs available</div>';
-                } else {
-                    logsContent.textContent = logs;
-                    logsContent.scrollTop = logsContent.scrollHeight;
-                }
-            } catch (error) {
-                logsContent.innerHTML = '<div class="loading error-text">Error loading logs: ' + error.message + '</div>';
-            }
-        }
-
-        // Update switch button state
-        function updateSwitchButton() {
-            const select = document.getElementById('server-select');
-            const btn = document.getElementById('switch-btn');
-            const selectedServer = select.value;
-
-            btn.disabled = !selectedServer || selectedServer === currentData.current_server;
-        }
-
-        // Switch to selected server
-        async function switchToSelectedServer() {
-            const select = document.getElementById('server-select');
-            const selectedServer = select.value;
-
-            if (!selectedServer) return;
-            if (!confirm('Switch to: ' + selectedServer + '?')) return;
-
-            try {
-                const response = await fetch('/api/switch', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        type: 'select',
-                        target_server: selectedServer
-                    })
-                });
-
-                const result = await response.json();
-                if (result.success) {
-                    alert('Switching to selected server...');
-                    setTimeout(fetchStatus, 2000);
-                } else {
-                    alert('Error: ' + (result.error || 'Unknown error'));
-                }
-            } catch (error) {
-                alert('Error switching server: ' + error.message);
-            }
-        }
-
-        // Event listeners
-        document.getElementById('server-select').addEventListener('change', updateSwitchButton);
-
-        // Close modal when clicking outside
-        document.getElementById('logs-modal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeLogsModal();
-            }
-        });
-
-        // Initialize
-        fetchStatus();
-
-        // Start countdown timer (update every second)
-        countdownTimer = setInterval(updateCountdown, 1000);
-    </script>
+    <script src="/app.js?v=1.0.0"></script>
 </body>
+
 </html>

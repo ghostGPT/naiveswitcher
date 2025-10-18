@@ -68,13 +68,11 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 					state.NaiveCmdCancel()
 					state.NaiveCmdCancel = nil
 				}
-				// 强制杀死进程
+				// 使用 KillProcessGroup 终止进程
 				if state.NaiveCmd.Process != nil {
-					if err := state.NaiveCmd.Process.Kill(); err != nil {
-						service.DebugF("Error killing naive: %v\n", err)
-					}
+					pid := state.NaiveCmd.Process.Pid
+					service.KillProcessGroup(state, pid)
 				}
-				state.NaiveCmd.Wait()
 				state.NaiveCmd = nil
 			}
 
