@@ -116,10 +116,12 @@
             background: linear-gradient(135deg, #f0f8ff, #e3f2fd);
             border: 2px solid var(--primary);
             border-radius: 12px;
-            padding: 25px;
+            padding: 20px 25px;
             margin-bottom: 20px;
             box-shadow: 0 4px 20px rgba(33, 150, 243, 0.15);
-            text-align: center;
+            display: flex;
+            align-items: center;
+            gap: 15px;
         }
 
         .current-server-label {
@@ -127,20 +129,20 @@
             color: var(--text-secondary);
             text-transform: uppercase;
             letter-spacing: 1.5px;
-            margin-bottom: 10px;
             font-weight: 600;
+            white-space: nowrap;
         }
 
         .current-server-value {
             font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 1.3em;
+            font-size: 1.1em;
             color: var(--primary-dark);
             font-weight: 700;
             word-break: break-all;
             display: flex;
             align-items: center;
-            justify-content: center;
             gap: 10px;
+            flex: 1;
         }
 
         .grid {
@@ -218,7 +220,7 @@
         }
 
         .btn {
-            padding: 12px 20px;
+            padding: 16px 24px;
             border: none;
             border-radius: 8px;
             color: white;
@@ -229,7 +231,7 @@
             align-items: center;
             justify-content: center;
             gap: 8px;
-            font-size: 0.95em;
+            font-size: 1em;
             text-decoration: none;
             background: var(--primary);
         }
@@ -507,7 +509,7 @@
         </div>
 
         <div class="current-server-card">
-            <div class="current-server-label">Current Proxy Server</div>
+            <div class="current-server-label">CURRENT PROXY SERVER</div>
             <div class="current-server-value">
                 <span id="server-status-indicator" class="status-indicator online"></span>
                 <span id="current-server">Loading...</span>
@@ -557,13 +559,13 @@
             <div class="card">
                 <div class="card-title">ℹ️ Version Info</div>
                 <div class="metric">
-                    <span class="metric-label">Naive Proxy</span>
+                    <span class="metric-label">Naive</span>
                     <span class="metric-value">
                         <span class="version-badge" id="naive-version">--</span>
                     </span>
                 </div>
                 <div class="metric">
-                    <span class="metric-label">NaiveSwitcher</span>
+                    <span class="metric-label">Switcher</span>
                     <span class="metric-value">
                         <span class="version-badge" id="switcher-version">--</span>
                     </span>
@@ -578,10 +580,10 @@
             <div class="card full-width">
                 <div class="card-title">⚡ Quick Actions</div>
                 <div class="actions">
-                    <button class="btn" onclick="switchToBestServer()">Switch to Best Server</button>
-                    <button class="btn success" id="auto-switch-btn" onclick="toggleAutoSwitch()">Pause Auto Switch</button>
-                    <button class="btn warning" onclick="checkUpdates()">Check Updates</button>
-                    <button class="btn secondary" onclick="viewLogs()">View Logs</button>
+                    <button class="btn" onclick="switchToBestServer()">🔀 Switch to Best Server</button>
+                    <button class="btn success" id="auto-switch-btn" onclick="toggleAutoSwitch()">⏸️ Pause Auto Switch</button>
+                    <button class="btn warning" onclick="checkUpdates()">🔄 Check Updates</button>
+                    <button class="btn secondary" onclick="viewLogs()">📋 View Logs</button>
                 </div>
             </div>
 
@@ -691,7 +693,7 @@
             // Update button text
             const autoSwitchBtn = document.getElementById('auto-switch-btn');
             if (autoSwitchBtn) {
-                autoSwitchBtn.textContent = autoSwitchPaused ? 'Resume Auto Switch' : 'Pause Auto Switch';
+                autoSwitchBtn.textContent = autoSwitchPaused ? '▶️ Resume Auto Switch' : '⏸️ Pause Auto Switch';
                 autoSwitchBtn.className = autoSwitchPaused ? 'btn success' : 'btn secondary';
             }
 
@@ -722,12 +724,24 @@
             // Versions
             const naiveVersionEl = document.getElementById('naive-version');
             if (naiveVersionEl) {
-                naiveVersionEl.textContent = data.naive_version || '--';
+                const naiveVersion = data.naive_version || '--';
+                if (naiveVersion !== '--') {
+                    const match = naiveVersion.match(/(v[\d.]+(?:-\d+)?)-/);
+                    naiveVersionEl.textContent = match ? match[1] : naiveVersion;
+                } else {
+                    naiveVersionEl.textContent = naiveVersion;
+                }
             }
 
             const switcherVersionEl = document.getElementById('switcher-version');
             if (switcherVersionEl) {
-                switcherVersionEl.textContent = data.switcher_version || '--';
+                const switcherVersion = data.switcher_version || '--';
+                // Add 'v' prefix if not present and it's a valid version number
+                if (switcherVersion !== '--' && !switcherVersion.startsWith('v')) {
+                    switcherVersionEl.textContent = 'v' + switcherVersion;
+                } else {
+                    switcherVersionEl.textContent = switcherVersion;
+                }
             }
 
             // Last update time
