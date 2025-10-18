@@ -38,9 +38,12 @@ func ServeTCP(state *types.GlobalState, l net.Listener, doSwitch chan<- types.Sw
 
 // HandleConnection 处理单个连接
 func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Pool, doSwitch chan<- types.SwitchRequest) {
+	defer func() {
+		conn.SetDeadline(time.Now())
+		conn.Close()
+	}()
 
 	if state.NaiveCmd == nil {
-		conn.Close()
 		service.DebugF("No naive running\n")
 		doSwitch <- types.SwitchRequest{Type: "auto"}
 		return
@@ -52,7 +55,10 @@ func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Poo
 	naiveConn, err := net.DialTimeout("tcp", service.UpstreamListenPort, 3*time.Second)
 	if err == nil {
 		go func() {
-			defer naiveConn.Close()
+			defer func() {
+				naiveConn.SetDeadline(time.Now())
+				naiveConn.Close()
+			}()
 			_, e := io.Copy(naiveConn, conn)
 			remoteOk = e == nil
 		}()
@@ -61,11 +67,6 @@ func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Poo
 		serverDown = isServerDown(int(written), buf.([]byte), remoteOk)
 		bufPool.Put(buf)
 	}
-
-	conn.SetDeadline(time.Now())
-	conn.Close()
-	naiveConn.SetDeadline(time.Now())
-	naiveConn.Close()
 
 	// 更新错误计数
 	if serverDown {
