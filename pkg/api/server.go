@@ -225,15 +225,27 @@ func handleAutoSwitchAPI(state *types.GlobalState, w http.ResponseWriter, r *htt
 	switch req.Action {
 	case "pause":
 		state.AutoSwitchPaused = true
+		if state.FastestUrl != "" {
+			state.LockedServer = state.FastestUrl
+		}
 	case "resume":
 		state.AutoSwitchPaused = false
+		state.LockedServer = ""
 	default:
 		state.AutoSwitchMutex.Unlock()
 		writeJSONError(w, "Invalid action. Use 'pause' or 'resume'", http.StatusBadRequest)
 		return
 	}
 	paused := state.AutoSwitchPaused
+	ps := types.PersistedState{
+		AutoSwitchPaused: state.AutoSwitchPaused,
+		LockedServer:     state.LockedServer,
+	}
 	state.AutoSwitchMutex.Unlock()
+
+	if err := types.SavePersistedState(common.BasePath, ps); err != nil {
+		log.DebugF("Save persisted state error: %v\n", err)
+	}
 
 	writeJSONSuccess(w, map[string]interface{}{
 		"message": "Auto switch " + req.Action + "d",

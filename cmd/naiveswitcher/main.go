@@ -15,6 +15,7 @@ import (
 	"naiveswitcher/pkg/log"
 	"naiveswitcher/pkg/naive"
 	"naiveswitcher/pkg/proxy"
+	"naiveswitcher/pkg/subscription"
 	"naiveswitcher/pkg/switcher"
 )
 
@@ -25,7 +26,7 @@ const (
 
 var (
 	version string = "888.888.888"
-	cfg     = config.NewConfig(version)
+	cfg            = config.NewConfig(version)
 )
 
 func init() {
@@ -75,14 +76,43 @@ func main() {
 		return
 	}
 
+	// 尝试加载持久化状态
+	ps, err := types.LoadPersistedState(common.BasePath)
+	if err != nil {
+		log.DebugF("Load persisted state error: %v\n", err)
+	} else {
+		state.AutoSwitchMutex.Lock()
+		state.AutoSwitchPaused = ps.AutoSwitchPaused
+		state.LockedServer = ps.LockedServer
+		state.AutoSwitchMutex.Unlock()
+	}
+
 	// 初始化服务器列表
-	var err error
 	if len(state.HostUrls) == 0 {
 		state.HostUrls = append(state.HostUrls, cfg.BootstrapNode)
 	}
-	state.HostUrls, err = switcher.HandleSwitch(state, cfg, state.HostUrls, "")
-	if err != nil {
-		log.DebugF("Bootstrap error: %v (will auto retry)\n", err)
+
+	state.AutoSwitchMutex.RLock()
+	paused := state.AutoSwitchPaused
+	locked := state.LockedServer
+	state.AutoSwitchMutex.RUnlock()
+
+	if paused && locked != "" {
+		if hostUrls, subErr := subscription.Subscription(cfg.SubscribeURL); subErr == nil {
+			state.HostUrls = hostUrls
+		} else {
+			log.DebugF("Error updating subscription: %v\n", subErr)
+		}
+		if restartErr := switcher.RestartNaive(state, locked); restartErr != nil {
+			log.DebugF("Locked start error: %v\n", restartErr)
+		} else {
+			state.FastestUrl = locked
+		}
+	} else {
+		state.HostUrls, err = switcher.HandleSwitch(state, cfg, state.HostUrls, "")
+		if err != nil {
+			log.DebugF("Bootstrap error: %v (will auto retry)\n", err)
+		}
 	}
 
 	// 启动 TCP 监听

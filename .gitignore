@@ -1,4 +1,5 @@
 .DS_Store
+.worktrees
 crash.txt
 naiveproxy-v*
 naiveswitcher

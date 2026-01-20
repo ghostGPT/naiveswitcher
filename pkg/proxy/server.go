@@ -77,7 +77,7 @@ func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Poo
 			atomic.StoreInt32(&state.ErrorCount, 0)
 			log.DebugF("Too many errors (%d), switching server\n", newCount)
 			doSwitch <- types.SwitchRequest{
-				Type:        "avoid",
+				Type:        "avoid_auto",
 				AvoidServer: state.FastestUrl,
 			}
 		}

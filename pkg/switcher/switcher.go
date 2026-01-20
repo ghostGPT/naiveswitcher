@@ -8,6 +8,7 @@ import (
 
 	"naiveswitcher/internal/config"
 	"naiveswitcher/internal/types"
+	"naiveswitcher/pkg/common"
 	"naiveswitcher/pkg/log"
 	"naiveswitcher/pkg/subscription"
 )
@@ -17,6 +18,14 @@ import (
 // 使用原子标志避免并发切换，如果正在切换中则跳过新请求
 func Switcher(state *types.GlobalState, cfg *config.Config, doSwitch <-chan types.SwitchRequest) {
 	for switchReq := range doSwitch {
+		state.AutoSwitchMutex.RLock()
+		paused := state.AutoSwitchPaused
+		state.AutoSwitchMutex.RUnlock()
+		if paused && !isManualSwitchType(switchReq.Type) {
+			log.DebugF("Auto switch paused, ignoring request type: %s\n", switchReq.Type)
+			continue
+		}
+
 		// 检查是否正在切换，如果是则跳过
 		if !atomic.CompareAndSwapInt32(&state.Switching, 0, 1) {
 			log.DebugF("Already switching, skipping request\n")
@@ -38,6 +47,8 @@ func Switcher(state *types.GlobalState, cfg *config.Config, doSwitch <-chan type
 			err = ProcessSelectRequest(state, switchReq)
 		case "avoid":
 			state.HostUrls, err = HandleSwitch(state, cfg, state.HostUrls, switchReq.AvoidServer)
+		case "avoid_auto":
+			state.HostUrls, err = HandleSwitch(state, cfg, state.HostUrls, switchReq.AvoidServer)
 		case "auto":
 			state.HostUrls, err = HandleSwitch(state, cfg, state.HostUrls, "")
 		default:
@@ -46,12 +57,27 @@ func Switcher(state *types.GlobalState, cfg *config.Config, doSwitch <-chan type
 
 		if err != nil {
 			log.DebugF("Error switching: %v\n", err)
+		} else if switchReq.Type == "avoid" {
+			state.AutoSwitchMutex.Lock()
+			state.LockedServer = state.FastestUrl
+			ps := types.PersistedState{
+				AutoSwitchPaused: state.AutoSwitchPaused,
+				LockedServer:     state.LockedServer,
+			}
+			state.AutoSwitchMutex.Unlock()
+			if persistErr := types.SavePersistedState(common.BasePath, ps); persistErr != nil {
+				log.DebugF("Save persisted state error: %v\n", persistErr)
+			}
 		}
 
 		atomic.StoreInt32(&state.ErrorCount, 0)
 		atomic.StoreInt32(&state.Switching, 0) // 重置切换标志
 		log.DebugF("Switching done\n")
 	}
+}
+
+func isManualSwitchType(t string) bool {
+	return t == "select" || t == "avoid"
 }
 
 // HandleSwitch 处理服务器切换逻辑

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"naiveswitcher/internal/types"
+	"naiveswitcher/pkg/common"
 	"naiveswitcher/pkg/log"
 	"naiveswitcher/pkg/naive"
 )
@@ -102,5 +103,17 @@ func ProcessSelectRequest(state *types.GlobalState, req types.SwitchRequest) err
 	}
 
 	state.FastestUrl = req.TargetServer
+
+	state.AutoSwitchMutex.Lock()
+	state.LockedServer = state.FastestUrl
+	ps := types.PersistedState{
+		AutoSwitchPaused: state.AutoSwitchPaused,
+		LockedServer:     state.LockedServer,
+	}
+	state.AutoSwitchMutex.Unlock()
+	if err := types.SavePersistedState(common.BasePath, ps); err != nil {
+		log.DebugF("Save persisted state error: %v\n", err)
+	}
+
 	return nil
 }
