@@ -1,140 +1,64 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NaiveSwitcher 管理面板</title>
-    <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔄</text></svg>">
-    <link rel="stylesheet" href="/style.css?v=1.0.0">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>NaiveSwitcher</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<link rel="stylesheet" href="/style.css?v=3.2.0">
+<script>
+(function(){var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.classList.add('dark');else if(t==='light')document.documentElement.classList.add('light')})();
+</script>
 </head>
-
 <body>
-    <div class="container">
-        <div class="header">
-            <div class="header-left">
-                <h1>🔄 NaiveSwitcher</h1>
-                <p class="subtitle">服务器自动切换管理面板</p>
-            </div>
-            <div class="header-right">
-                <div class="refresh-info">
-                    <div class="refresh-label">下次刷新</div>
-                    <div class="refresh-countdown">
-                        <span class="countdown-circle"></span>
-                        <span id="refresh-countdown">3秒</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="current-server-card">
-            <div class="current-server-label">当前连接服务器</div>
-            <div class="current-server-value">
-                <span id="server-status-indicator" class="status-indicator online"></span>
-                <span id="current-server">加载中...</span>
-            </div>
-        </div>
-
-        <div class="grid">
-            <div class="card">
-                <div class="card-title">📊 系统状态</div>
-                <div class="metric">
-                    <span class="metric-label">运行时长</span>
-                    <span class="metric-value" id="uptime">--</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">自动切换</span>
-                    <span class="metric-value" id="auto-switch-status">
-                        <span class="status-indicator online"></span>
-                        <span>运行中</span>
-                    </span>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">⚠️ 错误监控</div>
-                <div class="metric">
-                    <span class="metric-label">当前错误数</span>
-                    <span class="metric-value" id="error-count">0</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">最后更新</span>
-                    <span class="metric-value" id="last-update">--</span>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">⚙️ 运行时指标</div>
-                <div class="metric">
-                    <span class="metric-label">协程数</span>
-                    <span class="metric-value" id="goroutine-count">--</span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">内存占用</span>
-                    <span class="metric-value" id="memory-usage">--</span>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">ℹ️ 版本信息</div>
-                <div class="metric">
-                    <span class="metric-label">Naive</span>
-                    <span class="metric-value">
-                        <span class="version-badge" id="naive-version">--</span>
-                    </span>
-                </div>
-                <div class="metric">
-                    <span class="metric-label">Switcher</span>
-                    <span class="metric-value">
-                        <span class="version-badge" id="switcher-version">--</span>
-                    </span>
-                </div>
-            </div>
-
-            <div class="card full-width">
-                <div class="card-title">📉 服务器故障统计</div>
-                <div class="code-block" id="down-stats">加载中...</div>
-            </div>
-
-            <div class="card full-width">
-                <div class="card-title">⚡ 快速操作</div>
-                <div class="actions">
-                    <button class="btn" onclick="switchToBestServer()">🔀 切换到最佳服务器</button>
-                    <button class="btn success" id="auto-switch-btn" onclick="toggleAutoSwitch()">⏸️ 暂停自动切换</button>
-                    <button class="btn warning" onclick="checkUpdates()">🔄 检查更新</button>
-                    <button class="btn secondary" onclick="viewLogs()">📋 查看日志</button>
-                </div>
-            </div>
-
-            <div class="card full-width">
-                <div class="card-title">🎯 手动选择服务器</div>
-                <select id="server-select" class="server-select">
-                    <option value="">-- 选择要切换的服务器 --</option>
-                </select>
-                <button class="btn full-width" id="switch-btn" onclick="switchToSelectedServer()" disabled>
-                    切换到所选服务器
-                </button>
-            </div>
-        </div>
+<div class="w">
+    <header>
+        <h1>NaiveSwitcher</h1>
+        <span style="display:flex;align-items:center;gap:10px">
+            <span class="tk" id="refresh-countdown">3s</span>
+            <button class="thm" id="theme-btn" onclick="toggleTheme()">🌙</button>
+        </span>
+    </header>
+    <div class="sb">
+        <span id="server-status-indicator" class="d"></span>
+        <span class="l">当前</span>
+        <span id="current-server">加载中…</span>
     </div>
-
-    <!-- Logs Modal -->
-    <div id="logs-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 class="modal-title">系统日志</h2>
-                <button class="modal-close" onclick="closeLogsModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div id="logs-content" class="logs-container">
-                    <div class="loading">加载日志中...</div>
-                </div>
-            </div>
-        </div>
+    <h2>状态</h2>
+    <table>
+        <tr><td>运行</td><td id="uptime">--</td></tr>
+        <tr><td>自动切换</td><td id="auto-switch-status">--</td></tr>
+        <tr><td>错误</td><td id="error-count">0</td></tr>
+        <tr><td>更新于</td><td id="last-update">--</td></tr>
+    </table>
+    <h2>运行时</h2>
+    <table>
+        <tr><td>协程</td><td id="goroutine-count">--</td></tr>
+        <tr><td>内存</td><td id="memory-usage">--</td></tr>
+        <tr><td>Naive</td><td><span class="tg" id="naive-version">--</span></td></tr>
+        <tr><td>Switcher</td><td><span class="tg" id="switcher-version">--</span></td></tr>
+    </table>
+    <h2>故障</h2>
+    <pre class="st" id="down-stats">加载中…</pre>
+    <div class="acts">
+        <button class="b p" onclick="switchToBestServer()">切换最佳</button>
+        <button class="b" id="auto-switch-btn" onclick="toggleAutoSwitch()">暂停自动</button>
+        <button class="b" onclick="checkUpdates()">检查更新</button>
+        <button class="b" onclick="viewLogs()">日志</button>
     </div>
-
-    <script src="/app.js?v=1.0.0"></script>
+    <h2>手动切换</h2>
+    <div class="sr">
+        <select id="server-select"><option value="">选择服务器…</option></select>
+        <button class="b p" id="switch-btn" onclick="switchToSelectedServer()" disabled>切换</button>
+    </div>
+</div>
+<div id="logs-modal" class="mo">
+    <div class="mb">
+        <div class="mt"><span>日志</span><button onclick="closeLogsModal()">&times;</button></div>
+        <div class="ms"><div id="logs-content" class="lg">加载中…</div></div>
+    </div>
+</div>
+<div class="tw" id="toast-container"></div>
+<script src="/app.js?v=3.2.0"></script>
 </body>
-
 </html>

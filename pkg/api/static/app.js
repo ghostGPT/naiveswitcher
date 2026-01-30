@@ -1,330 +1,197 @@
-let currentData = {};
-let autoSwitchPaused = false;
-let countdown = 3;
-let countdownTimer = null;
+var currentData = {};
+var autoSwitchPaused = false;
+var countdown = 3;
 
-// Update countdown display
-function updateCountdown() {
-    const countdownEl = document.getElementById('refresh-countdown');
-    if (countdownEl) {
-        countdownEl.textContent = countdown + '秒';
-    }
-
-    if (countdown <= 0) {
-        countdown = 3;
-        fetchStatus();
-    } else {
-        countdown--;
-    }
+function toast(msg, type) {
+    var m = {ok:'to',err:'te',info:'ti'};
+    var c = document.getElementById('toast-container');
+    var el = document.createElement('div');
+    el.className = 't ' + (m[type] || 'ti');
+    el.textContent = msg;
+    c.appendChild(el);
+    setTimeout(function() {
+        el.classList.add('out');
+        setTimeout(function() { el.remove(); }, 150);
+    }, 2500);
 }
 
-// Fetch status from API
-async function fetchStatus() {
-    try {
-        const response = await fetch('/api/status');
-        const result = await response.json();
-
-        if (result.success && result.data) {
-            currentData = result.data;
-            updateUI();
-        }
-    } catch (error) {
-        console.error('Error fetching status:', error);
-    }
+function tick() {
+    var el = document.getElementById('refresh-countdown');
+    if (el) el.textContent = countdown + 's';
+    if (countdown <= 0) { countdown = 3; poll(); }
+    else countdown--;
 }
 
-// Update UI with current data
-function updateUI() {
-    const data = currentData || {};
+function poll() {
+    fetch('/api/status').then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success && res.data) { currentData = res.data; render(); }
+    }).catch(function() {});
+}
 
-    // Current server
-    const currentServerEl = document.getElementById('current-server');
-    if (currentServerEl) {
-        currentServerEl.textContent = data.current_server || '未知';
+function render() {
+    var d = currentData;
+    var err = d.error_count || 0;
+
+    setText('current-server', d.current_server || '未知');
+
+    var dot = document.getElementById('server-status-indicator');
+    if (dot) dot.className = 'd' + (err > 5 ? ' de' : err > 0 ? ' dw' : '');
+
+    setText('uptime', d.uptime || '--');
+    setText('goroutine-count', d.goroutine_count || '--');
+    setText('memory-usage', d.memory_usage_mb ? d.memory_usage_mb + ' MB' : '--');
+    setText('last-update', new Date().toLocaleTimeString());
+
+    var ecEl = document.getElementById('error-count');
+    if (ecEl) {
+        ecEl.textContent = err;
+        ecEl.className = err > 5 ? 'et' : err > 0 ? 'wt' : 'ok';
     }
 
-    // Status indicator
-    const indicator = document.getElementById('server-status-indicator');
-    const errorCount = data.error_count || 0;
-    if (indicator) {
-        indicator.className = 'status-indicator ' +
-            (errorCount > 5 ? 'error' : errorCount > 0 ? 'warning' : 'online');
+    autoSwitchPaused = d.auto_switch_paused || false;
+    var asEl = document.getElementById('auto-switch-status');
+    if (asEl) {
+        asEl.innerHTML = '<span class="d' + (autoSwitchPaused ? ' dw' : '') + '"></span> ' +
+            (autoSwitchPaused ? '已暂停' : '运行中');
     }
 
-    // Uptime
-    const uptimeEl = document.getElementById('uptime');
-    if (uptimeEl) {
-        uptimeEl.textContent = data.uptime || '--';
-    }
+    var asBtn = document.getElementById('auto-switch-btn');
+    if (asBtn) asBtn.textContent = autoSwitchPaused ? '恢复自动' : '暂停自动';
 
-    // Auto switch status
-    autoSwitchPaused = data.auto_switch_paused || false;
-    const autoSwitchStatus = document.getElementById('auto-switch-status');
-    if (autoSwitchStatus) {
-        autoSwitchStatus.innerHTML = `
-            <span class="status-indicator ${autoSwitchPaused ? 'warning' : 'online'}"></span>
-            <span class="${autoSwitchPaused ? 'warning-text' : 'success-text'}">
-                ${autoSwitchPaused ? '已暂停' : '运行中'}
-            </span>
-        `;
+    var nv = d.naive_version || '--';
+    if (nv !== '--') {
+        var m = nv.match(/(v[\d.]+(?:-\d+)?)-/);
+        if (m) nv = m[1];
     }
+    setText('naive-version', nv);
 
-    // Update button text
-    const autoSwitchBtn = document.getElementById('auto-switch-btn');
-    if (autoSwitchBtn) {
-        autoSwitchBtn.textContent = autoSwitchPaused ? '▶️ 恢复自动切换' : '⏸️ 暂停自动切换';
-        autoSwitchBtn.className = autoSwitchPaused ? 'btn success' : 'btn secondary';
-    }
+    var sv = d.switcher_version || '--';
+    if (sv !== '--' && sv.charAt(0) !== 'v') sv = 'v' + sv;
+    setText('switcher-version', sv);
 
-    // Error count
-    const errorCountEl = document.getElementById('error-count');
-    if (errorCountEl) {
-        errorCountEl.textContent = errorCount;
-        errorCountEl.className = 'metric-value ' +
-            (errorCount > 5 ? 'error-text' : errorCount > 0 ? 'warning-text' : 'success-text');
-    }
-
-    // Goroutine count
-    const goroutineEl = document.getElementById('goroutine-count');
-    if (goroutineEl) {
-        goroutineEl.textContent = data.goroutine_count || '--';
-    }
-
-    // Memory usage
-    const memoryUsageEl = document.getElementById('memory-usage');
-    if (memoryUsageEl) {
-        if (data.memory_usage_mb) {
-            memoryUsageEl.textContent = data.memory_usage_mb + ' MB';
-        } else {
-            memoryUsageEl.textContent = '--';
+    var ds = d.down_stats || {};
+    var dsEl = document.getElementById('down-stats');
+    if (dsEl) {
+        var keys = Object.keys(ds);
+        if (keys.length === 0) { dsEl.textContent = '暂无记录'; }
+        else {
+            var t = '';
+            keys.forEach(function(k) { t += k + ': ' + ds[k] + '\n'; });
+            dsEl.textContent = t.trim();
         }
     }
 
-    // Versions
-    const naiveVersionEl = document.getElementById('naive-version');
-    if (naiveVersionEl) {
-        const naiveVersion = data.naive_version || '--';
-        if (naiveVersion !== '--') {
-            const match = naiveVersion.match(/(v[\d.]+(?:-\d+)?)-/);
-            naiveVersionEl.textContent = match ? match[1] : naiveVersion;
-        } else {
-            naiveVersionEl.textContent = naiveVersion;
-        }
-    }
-
-    const switcherVersionEl = document.getElementById('switcher-version');
-    if (switcherVersionEl) {
-        const switcherVersion = data.switcher_version || '--';
-        // Add 'v' prefix if not present and it's a valid version number
-        if (switcherVersion !== '--' && !switcherVersion.startsWith('v')) {
-            switcherVersionEl.textContent = 'v' + switcherVersion;
-        } else {
-            switcherVersionEl.textContent = switcherVersion;
-        }
-    }
-
-    // Last update time
-    const lastUpdateEl = document.getElementById('last-update');
-    if (lastUpdateEl) {
-        lastUpdateEl.textContent = new Date().toLocaleTimeString();
-    }
-
-    // Down stats
-    const downStatsEl = document.getElementById('down-stats');
-    if (downStatsEl) {
-        const downStats = data.down_stats || {};
-        let downStatsText = '';
-        if (Object.keys(downStats).length === 0) {
-            downStatsText = '未记录到服务器故障';
-        } else {
-            for (const [server, count] of Object.entries(downStats)) {
-                downStatsText += `${server}: ${count}\n`;
-            }
-        }
-        downStatsEl.textContent = downStatsText;
-    }
-
-    // Available servers
-    const serverSelect = document.getElementById('server-select');
-    if (!serverSelect) return;
-    const currentServer = data.current_server;
-    const servers = data.available_servers || [];
-
-    // Preserve current selection
-    const currentSelection = serverSelect.value;
-
-    serverSelect.innerHTML = '<option value="">-- 选择要切换的服务器 --</option>';
-    servers.forEach(server => {
-        const option = document.createElement('option');
-        option.value = server;
-        option.textContent = server + (server === currentServer ? ' (当前)' : '');
-        if (server === currentServer) {
-            option.disabled = true;
-        }
-        serverSelect.appendChild(option);
+    var sel = document.getElementById('server-select');
+    if (!sel) return;
+    var cur = d.current_server;
+    var svrs = d.available_servers || [];
+    var prev = sel.value;
+    sel.innerHTML = '<option value="">选择服务器…</option>';
+    svrs.forEach(function(s) {
+        var o = document.createElement('option');
+        o.value = s;
+        o.textContent = s + (s === cur ? ' ✓' : '');
+        if (s === cur) o.disabled = true;
+        sel.appendChild(o);
     });
-
-    // Restore selection if still valid
-    if (currentSelection && servers.includes(currentSelection)) {
-        serverSelect.value = currentSelection;
-    }
-
-    updateSwitchButton();
+    if (prev && svrs.indexOf(prev) !== -1) sel.value = prev;
+    syncBtn();
 }
 
-// Switch to best server
-async function switchToBestServer() {
-    if (!confirm('切换到最佳可用服务器？')) return;
-
-    try {
-        const response = await fetch('/api/switch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                type: 'avoid',
-                avoid_server: currentData.current_server
-            })
-        });
-
-        const result = await response.json();
-        if (result.success) {
-            alert('正在切换到最佳服务器...');
-            setTimeout(fetchStatus, 2000);
-        } else {
-            alert('错误：' + (result.error || '未知错误'));
-        }
-    } catch (error) {
-        alert('切换服务器时出错：' + error.message);
-    }
+function setText(id, v) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = v;
 }
 
-// Toggle auto switch
-async function toggleAutoSwitch() {
-    const action = autoSwitchPaused ? 'resume' : 'pause';
-
-    try {
-        const response = await fetch('/api/auto-switch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action })
-        });
-
-        const result = await response.json();
-        if (result.success) {
-            fetchStatus();
-        } else {
-            alert('错误：' + (result.error || '未知错误'));
-        }
-    } catch (error) {
-        alert('切换自动开关时出错：' + error.message);
-    }
+function syncBtn() {
+    var sel = document.getElementById('server-select');
+    var btn = document.getElementById('switch-btn');
+    btn.disabled = !sel.value || sel.value === currentData.current_server;
 }
 
-// Check for updates
-async function checkUpdates() {
-    try {
-        const response = await fetch('/api/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        const result = await response.json();
-        if (result.success) {
-            alert('已开始检查更新，请查看日志了解结果。');
-        } else {
-            alert('错误：' + (result.error || '未知错误'));
-        }
-    } catch (error) {
-        alert('检查更新时出错：' + error.message);
-    }
+function switchToBestServer() {
+    if (!confirm('切换到最佳服务器？')) return;
+    fetch('/api/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'avoid', avoid_server: currentData.current_server })
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) { toast('正在切换…', 'ok'); setTimeout(poll, 2000); }
+        else toast(res.error || '失败', 'err');
+    }).catch(function(e) { toast('出错：' + e.message, 'err'); });
 }
 
-// View logs
+function toggleAutoSwitch() {
+    var action = autoSwitchPaused ? 'resume' : 'pause';
+    fetch('/api/auto-switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action })
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) { toast(autoSwitchPaused ? '已恢复' : '已暂停', 'ok'); poll(); }
+        else toast(res.error || '失败', 'err');
+    }).catch(function(e) { toast('出错：' + e.message, 'err'); });
+}
+
+function checkUpdates() {
+    fetch('/api/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) toast('已开始检查更新', 'info');
+        else toast(res.error || '失败', 'err');
+    }).catch(function(e) { toast('出错：' + e.message, 'err'); });
+}
+
 function viewLogs() {
-    const modal = document.getElementById('logs-modal');
-    modal.classList.add('active');
-    loadLogs();
+    document.getElementById('logs-modal').classList.add('active');
+    var el = document.getElementById('logs-content');
+    el.textContent = '加载中…';
+    fetch('/api/logs').then(function(r) { return r.text(); }).then(function(t) {
+        el.textContent = t.trim() || '暂无日志';
+        el.scrollTop = el.scrollHeight;
+    }).catch(function(e) { el.textContent = '加载失败：' + e.message; });
 }
 
-// Close logs modal
 function closeLogsModal() {
     document.getElementById('logs-modal').classList.remove('active');
 }
 
-// Load logs
-async function loadLogs() {
-    const logsContent = document.getElementById('logs-content');
-    logsContent.innerHTML = '<div class="loading">加载日志中...</div>';
-
-    try {
-        const response = await fetch('/api/logs');
-        const logs = await response.text();
-
-        if (logs.trim() === '') {
-            logsContent.innerHTML = '<div class="loading">暂无日志</div>';
-        } else {
-            logsContent.textContent = logs;
-            logsContent.scrollTop = logsContent.scrollHeight;
-        }
-    } catch (error) {
-        logsContent.innerHTML = '<div class="loading error-text">加载日志时出错：' + error.message + '</div>';
-    }
+function switchToSelectedServer() {
+    var s = document.getElementById('server-select').value;
+    if (!s || !confirm('切换到 ' + s + ' ？')) return;
+    fetch('/api/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'select', target_server: s })
+    }).then(function(r) { return r.json(); }).then(function(res) {
+        if (res.success) { toast('正在切换…', 'ok'); setTimeout(poll, 2000); }
+        else toast(res.error || '失败', 'err');
+    }).catch(function(e) { toast('出错：' + e.message, 'err'); });
 }
 
-// Update switch button state
-function updateSwitchButton() {
-    const select = document.getElementById('server-select');
-    const btn = document.getElementById('switch-btn');
-    const selectedServer = select.value;
-
-    btn.disabled = !selectedServer || selectedServer === currentData.current_server;
+function toggleTheme() {
+    var h = document.documentElement;
+    var cur = localStorage.getItem('theme') || 'auto';
+    var next = cur === 'auto' ? 'light' : cur === 'light' ? 'dark' : 'auto';
+    h.classList.remove('dark', 'light');
+    if (next === 'dark') h.classList.add('dark');
+    else if (next === 'light') h.classList.add('light');
+    localStorage.setItem('theme', next);
+    syncThemeBtn(next);
 }
 
-// Switch to selected server
-async function switchToSelectedServer() {
-    const select = document.getElementById('server-select');
-    const selectedServer = select.value;
-
-    if (!selectedServer) return;
-    if (!confirm('切换到：' + selectedServer + '？')) return;
-
-    try {
-        const response = await fetch('/api/switch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                type: 'select',
-                target_server: selectedServer
-            })
-        });
-
-        const result = await response.json();
-        if (result.success) {
-            alert('正在切换到所选服务器...');
-            setTimeout(fetchStatus, 2000);
-        } else {
-            alert('错误：' + (result.error || '未知错误'));
-        }
-    } catch (error) {
-        alert('切换服务器时出错：' + error.message);
-    }
+function syncThemeBtn(t) {
+    var labels = {auto:'◐',light:'☀️',dark:'🌙'};
+    document.getElementById('theme-btn').textContent = labels[t] || '◐';
 }
 
-// Event listeners
 document.addEventListener('DOMContentLoaded', function() {
-    // Server select change event
-    document.getElementById('server-select').addEventListener('change', updateSwitchButton);
-
-    // Close modal when clicking outside
-    document.getElementById('logs-modal').addEventListener('click', function (e) {
-        if (e.target === this) {
-            closeLogsModal();
-        }
+    syncThemeBtn(localStorage.getItem('theme') || 'auto');
+    document.getElementById('server-select').addEventListener('change', syncBtn);
+    document.getElementById('logs-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeLogsModal();
     });
-
-    // Initialize
-    fetchStatus();
-
-    // Start countdown timer (update every second)
-    countdownTimer = setInterval(updateCountdown, 1000);
+    poll();
+    setInterval(tick, 1000);
 });
