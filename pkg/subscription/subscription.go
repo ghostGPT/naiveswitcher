@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +23,8 @@ func Subscription(subscribeURL string) ([]string, error) {
 	var hostUrls []string
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	subscribeURL = strings.Replace(subscribeURL, "http2://", "https://", 1)
 
 	req, err := http.NewRequest("GET", subscribeURL, nil)
 	if err != nil {
@@ -50,6 +53,7 @@ func Subscription(subscribeURL string) ([]string, error) {
 	scanner := bufio.NewScanner(bytes.NewBuffer(bodyDecoded))
 	for scanner.Scan() {
 		line := scanner.Text()
+		line = strings.Replace(line, "http2://", "https://", 1)
 		u, err := url.Parse(line)
 		if err != nil {
 			return nil, err
