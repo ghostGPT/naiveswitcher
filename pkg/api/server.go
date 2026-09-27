@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"runtime"
+	"runtime/metrics"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -75,10 +76,11 @@ func handleSubscription(state *types.GlobalState, config *config.Config, w http.
 	if err != nil {
 		w.Write([]byte(err.Error() + "\n"))
 	} else {
-		state.HostUrls = newHostUrls
+		state.SetServers(newHostUrls)
 	}
-	w.Write([]byte(fmt.Sprintf("%d servers in pool\n", len(state.HostUrls))))
-	hostIps := util.BatchLookupURLsIP(state.HostUrls)
+	_, servers := state.Servers()
+	w.Write([]byte(fmt.Sprintf("%d servers in pool\n", len(servers))))
+	hostIps := util.BatchLookupURLsIP(servers)
 
 	for host, ips := range hostIps {
 		w.Write([]byte(fmt.Sprintf("%s: %+v\n", host, ips.IPs)))
@@ -93,24 +95,32 @@ func handleSubscription(state *types.GlobalState, config *config.Config, w http.
 }
 
 func handlePing(state *types.GlobalState, w http.ResponseWriter, _ *http.Request) {
-	hostIps := util.BatchLookupURLsIP(state.HostUrls)
+	_, servers := state.Servers()
+	hostIps := util.BatchLookupURLsIP(servers)
 	uniqueIps := util.UniqueIPs(hostIps)
 	uniqueHosts := make(map[string]struct{})
 	for _, hosts := range uniqueIps {
 		uniqueHosts[hosts[rand.Intn(len(hosts))]] = struct{}{}
 	}
 	sb := new(strings.Builder)
+	var sbMutex sync.Mutex
 	wg := new(sync.WaitGroup)
 	wg.Add(len(uniqueHosts))
 	for host := range uniqueHosts {
 		go func(host string) {
 			defer wg.Done()
 			p, pingErr := proping.NewPinger(host)
-			p.Timeout = time.Second * 10
 			if pingErr == nil {
+				p.Timeout = time.Second * 10
 				pingErr = p.Run()
 			}
-			sb.WriteString(fmt.Sprintf("%s, avg: %v, err: %v\n", host, p.Statistics().AvgRtt, pingErr))
+			var avg time.Duration
+			if p != nil {
+				avg = p.Statistics().AvgRtt
+			}
+			sbMutex.Lock()
+			sb.WriteString(fmt.Sprintf("%s, avg: %v, err: %v\n", host, avg, pingErr))
+			sbMutex.Unlock()
 		}(host)
 	}
 	wg.Wait()
@@ -142,8 +152,38 @@ func handleSwitchAPI(state *types.GlobalState, w http.ResponseWriter, r *http.Re
 		TargetServer: req.TargetServer,
 		AvoidServer:  req.AvoidServer,
 	}
+	switch req.Type {
+	case "auto":
+	case "avoid":
+		if req.AvoidServer == "" {
+			writeJSONError(w, "Invalid avoid server", http.StatusBadRequest)
+			return
+		}
+	case "select":
+		if req.TargetServer == "" || !state.HasServer(req.TargetServer) {
+			writeJSONError(w, "Invalid target server", http.StatusBadRequest)
+			return
+		}
+	default:
+		writeJSONError(w, "Invalid switch type", http.StatusBadRequest)
+		return
+	}
+	switchReq.Result = make(chan error, 1)
 
-	doSwitch <- switchReq
+	select {
+	case doSwitch <- switchReq:
+	case <-r.Context().Done():
+		return
+	}
+	select {
+	case err := <-switchReq.Result:
+		if err != nil {
+			writeJSONError(w, err.Error(), http.StatusConflict)
+			return
+		}
+	case <-r.Context().Done():
+		return
+	}
 
 	writeJSONSuccess(w, map[string]interface{}{
 		"message": "Switch request sent",
@@ -172,23 +212,29 @@ func handleStatusAPI(state *types.GlobalState, config *config.Config, w http.Res
 	}
 	state.ServerDownPriorityMutex.RUnlock()
 
-	// Get runtime metrics
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
+	// runtime/metrics 避免每次状态请求都触发 ReadMemStats 的全局统计停顿。
+	memorySamples := [...]metrics.Sample{
+		{Name: "/memory/classes/total:bytes"},
+		{Name: "/memory/classes/heap/objects:bytes"},
+	}
+	metrics.Read(memorySamples[:])
+	memoryTotal := memorySamples[0].Value.Uint64()
+	memoryAlloc := memorySamples[1].Value.Uint64()
 
+	current, servers := state.Servers()
 	data := map[string]interface{}{
-		"current_server":     state.FastestUrl,
+		"current_server":     current,
 		"error_count":        atomic.LoadInt32(&state.ErrorCount),
 		"down_stats":         downStatsCopy,
-		"naive_version":      common.Naive,
+		"naive_version":      common.GetNaive(),
 		"switcher_version":   config.Version,
 		"auto_switch_paused": paused,
-		"available_servers":  state.HostUrls,
+		"available_servers":  servers,
 		"uptime":             uptime,
 		"start_time":         state.StartTime,
 		"goroutine_count":    runtime.NumGoroutine(),
-		"memory_usage_mb":    fmt.Sprintf("%.2f", float64(memStats.Sys)/1024/1024),
-		"memory_alloc_mb":    fmt.Sprintf("%.2f", float64(memStats.Alloc)/1024/1024),
+		"memory_usage_mb":    fmt.Sprintf("%.2f", float64(memoryTotal)/1024/1024),
+		"memory_alloc_mb":    fmt.Sprintf("%.2f", float64(memoryAlloc)/1024/1024),
 	}
 
 	writeJSONSuccess(w, data)
@@ -225,8 +271,8 @@ func handleAutoSwitchAPI(state *types.GlobalState, w http.ResponseWriter, r *htt
 	switch req.Action {
 	case "pause":
 		state.AutoSwitchPaused = true
-		if state.FastestUrl != "" {
-			state.LockedServer = state.FastestUrl
+		if state.CurrentServer() != "" {
+			state.LockedServer = state.CurrentServer()
 		}
 	case "resume":
 		state.AutoSwitchPaused = false

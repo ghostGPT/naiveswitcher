@@ -52,9 +52,10 @@ func SavePersistedState(basePath string, ps PersistedState) error {
 // SwitchRequest 定义切换请求的类型
 // Type: "auto", "avoid", "avoid_auto", "select"
 type SwitchRequest struct {
-	Type         string // "auto", "avoid", "select", "avoid_auto"
-	TargetServer string // 目标服务器（用于select类型）
-	AvoidServer  string // 避免的服务器（用于avoid类型）
+	Type         string     // "auto", "avoid", "select", "avoid_auto"
+	TargetServer string     // 目标服务器（用于select类型）
+	AvoidServer  string     // 避免的服务器（用于avoid类型）
+	Result       chan error // API 请求等待实际切换结果；内部请求可留空
 }
 
 // GlobalState 包含全局状态
@@ -66,6 +67,7 @@ type GlobalState struct {
 	NaiveCmdLock            sync.Mutex
 	FastestUrl              string
 	HostUrls                []string
+	ServersMutex            sync.RWMutex // 保护 FastestUrl 和 HostUrls
 	ServerDownPriority      map[string]int
 	ServerDownPriorityMutex sync.RWMutex // 保护ServerDownPriority的并发访问
 	AutoSwitchPaused        bool
@@ -75,4 +77,45 @@ type GlobalState struct {
 	StartTime               int64           // 启动时间戳
 	Switching               int32           // 切换中标志，使用 atomic 操作
 	Checking                int32           // 更新检查中标志，使用 atomic 操作
+}
+
+func (s *GlobalState) Servers() (string, []string) {
+	s.ServersMutex.RLock()
+	defer s.ServersMutex.RUnlock()
+	return s.FastestUrl, append([]string(nil), s.HostUrls...)
+}
+
+func (s *GlobalState) CurrentServer() string {
+	s.ServersMutex.RLock()
+	defer s.ServersMutex.RUnlock()
+	return s.FastestUrl
+}
+
+func (s *GlobalState) SetCurrentServer(server string) {
+	s.ServersMutex.Lock()
+	s.FastestUrl = server
+	s.ServersMutex.Unlock()
+}
+
+func (s *GlobalState) SetServers(servers []string) {
+	s.ServersMutex.Lock()
+	s.HostUrls = append([]string(nil), servers...)
+	s.ServersMutex.Unlock()
+}
+
+func (s *GlobalState) HasServer(server string) bool {
+	s.ServersMutex.RLock()
+	defer s.ServersMutex.RUnlock()
+	for _, available := range s.HostUrls {
+		if available == server {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *GlobalState) IsNaiveRunning() bool {
+	s.NaiveCmdLock.Lock()
+	defer s.NaiveCmdLock.Unlock()
+	return s.NaiveCmd != nil
 }

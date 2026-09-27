@@ -44,7 +44,7 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 			ctx, cancel := context.WithTimeout(context.Background(), (time.Duration(config.AutoSwitchDuration/2))*time.Minute)
 			defer cancel()
 
-			latestNaiveVersion, err := github.GitHubCheckGetLatestRelease(ctx, "klzgrad", "naiveproxy", common.Naive)
+			latestNaiveVersion, err := github.GitHubCheckGetLatestRelease(ctx, "klzgrad", "naiveproxy", common.GetNaive())
 			if err != nil {
 				log.DebugF("Error getting latest remote naive version: %v\n", err)
 				return
@@ -79,9 +79,9 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 				state.NaiveCmd = nil
 			}
 
-			// 2. 更新二进制文件
-			os.Remove(common.BasePath + "/" + common.Naive)
-			common.Naive = newNaive
+			// 保留旧二进制文件，以便新版本启动失败时回退
+			oldNaive := common.GetNaive()
+			common.SetNaive(newNaive)
 
 			// 3. 启动新进程（检查是否正在关闭）
 			select {
@@ -91,9 +91,10 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 			default:
 			}
 
-			state.NaiveCmd, state.NaiveCmdCancel, err = naive.NaiveCmd(state, state.FastestUrl)
+			state.NaiveCmd, state.NaiveCmdCancel, err = naive.NaiveCmd(state, state.CurrentServer())
 			if err != nil {
 				log.DebugF("Error creating naive command after update: %v\n", err)
+				common.SetNaive(oldNaive)
 				return
 			}
 			if err := state.NaiveCmd.Start(); err != nil {
@@ -104,9 +105,24 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 					state.NaiveCmdCancel = nil
 				}
 				state.NaiveCmd = nil
+				common.SetNaive(oldNaive)
+				state.NaiveCmd, state.NaiveCmdCancel, err = naive.NaiveCmd(state, state.CurrentServer())
+				if err == nil {
+					if err = state.NaiveCmd.Start(); err != nil {
+						state.NaiveCmdCancel()
+						state.NaiveCmdCancel = nil
+						state.NaiveCmd = nil
+					}
+				}
+				if err != nil {
+					log.DebugF("Error restoring previous naive: %v\n", err)
+				}
 				return
 			}
-			log.DebugF("Updated to %s (PID: %d)\n", common.Naive, state.NaiveCmd.Process.Pid)
+			if oldNaive != newNaive {
+				os.Remove(common.BasePath + "/" + oldNaive)
+			}
+			log.DebugF("Updated to %s (PID: %d)\n", common.GetNaive(), state.NaiveCmd.Process.Pid)
 		}()
 
 		go func() {

@@ -2,7 +2,6 @@ package subscription
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -20,6 +19,7 @@ import (
 )
 
 func Subscription(subscribeURL string) ([]string, error) {
+	const maxSubscriptionBytes = 16 << 20
 	var hostUrls []string
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -40,17 +40,8 @@ func Subscription(subscribeURL string) ([]string, error) {
 	log.DebugF("Userinfo: %s\n", userInfo)
 
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	bodyDecoded, err := base64.StdEncoding.DecodeString(string(body))
-	if err != nil {
-		return nil, err
-	}
-
-	scanner := bufio.NewScanner(bytes.NewBuffer(bodyDecoded))
+	limited := &io.LimitedReader{R: resp.Body, N: maxSubscriptionBytes + 1}
+	scanner := bufio.NewScanner(base64.NewDecoder(base64.StdEncoding, limited))
 	for scanner.Scan() {
 		line := scanner.Text()
 		line = strings.Replace(line, "http2://", "https://", 1)
@@ -63,6 +54,12 @@ func Subscription(subscribeURL string) ([]string, error) {
 			return nil, err
 		}
 		hostUrls = append(hostUrls, "https://"+string(hostDecoded))
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if limited.N == 0 {
+		return nil, fmt.Errorf("subscription exceeds %d bytes", maxSubscriptionBytes)
 	}
 
 	return hostUrls, nil
@@ -140,14 +137,10 @@ func Fastest(hostUrls []string, serverPriority map[string]int, deadServer string
 			}
 			defer resp.Body.Close()
 
-			body, err := io.ReadAll(resp.Body)
+			probe := make([]byte, 1024)
+			n, err := io.ReadFull(resp.Body, probe)
 			if err != nil {
-				finalError = err
-				return
-			}
-
-			if len(body) < 1024 {
-				finalError = fmt.Errorf("invalid response, status code: %d, body: %s", resp.StatusCode, string(body))
+				finalError = fmt.Errorf("invalid response, status code: %d, body: %s: %w", resp.StatusCode, string(probe[:n]), err)
 				return
 			}
 		}(u)

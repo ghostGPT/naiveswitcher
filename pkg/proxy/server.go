@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -20,17 +21,22 @@ var DataServerDown = map[[12]byte]struct{}{
 	}: {},
 }
 
+const forwardBufferSize = 64 * 1024
+
 // ServeTCP 启动 TCP 代理服务器
 func ServeTCP(state *types.GlobalState, l net.Listener, doSwitch chan<- types.SwitchRequest) {
 	bufPool := &sync.Pool{
 		New: func() any {
-			return make([]byte, 32*1024)
+			return make([]byte, forwardBufferSize)
 		},
 	}
 	for {
 		conn, err := l.Accept()
 		if err != nil {
 			log.DebugF("Error accepting connection: %v\n", err)
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			continue
 		}
 		go HandleConnection(state, conn, bufPool, doSwitch)
@@ -39,33 +45,38 @@ func ServeTCP(state *types.GlobalState, l net.Listener, doSwitch chan<- types.Sw
 
 // HandleConnection 处理单个连接
 func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Pool, doSwitch chan<- types.SwitchRequest) {
+	handleConnection(state, conn, bufPool, doSwitch, common.UpstreamListenPort)
+}
+
+func handleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Pool, doSwitch chan<- types.SwitchRequest, upstreamAddress string) {
 	defer func() {
 		conn.SetDeadline(time.Now())
 		conn.Close()
 	}()
 
-	if state.NaiveCmd == nil {
+	if !state.IsNaiveRunning() {
 		log.DebugF("No naive running\n")
-		doSwitch <- types.SwitchRequest{Type: "auto"}
+		queueSwitch(doSwitch, types.SwitchRequest{Type: "auto"})
 		return
 	}
 
 	var serverDown bool = true
-	var remoteOk bool
 
-	naiveConn, err := net.DialTimeout("tcp", common.UpstreamListenPort, 3*time.Second)
+	naiveConn, err := net.DialTimeout("tcp", upstreamAddress, 3*time.Second)
 	if err == nil {
+		defer naiveConn.Close()
+		uploadDone := make(chan struct{}, 1)
 		go func() {
-			defer func() {
-				naiveConn.SetDeadline(time.Now())
-				naiveConn.Close()
-			}()
-			_, e := io.Copy(naiveConn, conn)
-			remoteOk = e == nil
+			io.Copy(naiveConn, conn)
+			closeWrite(naiveConn)
+			uploadDone <- struct{}{}
 		}()
 		buf := bufPool.Get()
 		written, _ := io.CopyBuffer(util.NewDowngradeReaderWriter(conn), util.NewDowngradeReaderWriter(naiveConn), buf.([]byte))
-		serverDown = isServerDown(int(written), buf.([]byte), remoteOk)
+		closeWrite(conn)
+		closeRead(conn)
+		<-uploadDone
+		serverDown = isServerDown(int(written), buf.([]byte))
 		bufPool.Put(buf)
 	}
 
@@ -76,14 +87,38 @@ func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Poo
 		if newCount > 10 {
 			atomic.StoreInt32(&state.ErrorCount, 0)
 			log.DebugF("Too many errors (%d), switching server\n", newCount)
-			doSwitch <- types.SwitchRequest{
+			queueSwitch(doSwitch, types.SwitchRequest{
 				Type:        "avoid_auto",
-				AvoidServer: state.FastestUrl,
-			}
+				AvoidServer: state.CurrentServer(),
+			})
 		}
 	} else {
 		// 成功时减少错误计数（但不低于0）
 		decrementErrorCount(&state.ErrorCount)
+	}
+}
+
+func queueSwitch(ch chan<- types.SwitchRequest, req types.SwitchRequest) {
+	select {
+	case ch <- req:
+	default:
+		log.DebugF("Switch queue full, skipping duplicate request: %s\n", req.Type)
+	}
+}
+
+func closeWrite(conn net.Conn) {
+	if c, ok := conn.(interface{ CloseWrite() error }); ok {
+		c.CloseWrite()
+	} else {
+		conn.Close()
+	}
+}
+
+func closeRead(conn net.Conn) {
+	if c, ok := conn.(interface{ CloseRead() error }); ok {
+		c.CloseRead()
+	} else {
+		conn.SetReadDeadline(time.Now())
 	}
 }
 
@@ -100,10 +135,7 @@ func decrementErrorCount(count *int32) {
 	}
 }
 
-func isServerDown(written int, data []byte, remoteOk bool) bool {
-	if remoteOk {
-		return false
-	}
+func isServerDown(written int, data []byte) bool {
 	if written != 12 {
 		return false
 	}

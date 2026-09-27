@@ -2,6 +2,7 @@ package switcher
 
 import (
 	"errors"
+	"fmt"
 
 	"naiveswitcher/internal/types"
 	"naiveswitcher/pkg/common"
@@ -36,7 +37,7 @@ func startNaiveUnsafe(state *types.GlobalState, targetServer string) error {
 	select {
 	case <-state.AppContext.Done():
 		log.DebugF("Application is shutting down, not starting naive process\n")
-		return nil // 不启动新进程，但不返回错误
+		return state.AppContext.Err()
 	default:
 		// 继续启动进程
 	}
@@ -58,6 +59,7 @@ func startNaiveUnsafe(state *types.GlobalState, targetServer string) error {
 		return err
 	}
 	log.DebugF("Successfully started naive process (PID: %d) for server: %s\n", state.NaiveCmd.Process.Pid, targetServer)
+	state.SetCurrentServer(targetServer)
 	return nil
 }
 
@@ -65,12 +67,25 @@ func startNaiveUnsafe(state *types.GlobalState, targetServer string) error {
 func RestartNaive(state *types.GlobalState, targetServer string) error {
 	state.NaiveCmdLock.Lock()
 	defer state.NaiveCmdLock.Unlock()
+	previous := state.CurrentServer()
 
 	// 停止当前进程
 	stopNaiveUnsafe(state)
 
 	// 启动新进程
-	return startNaiveUnsafe(state, targetServer)
+	if err := startNaiveUnsafe(state, targetServer); err != nil {
+		if previous != "" && state.AppContext.Err() == nil {
+			if rollbackErr := startNaiveUnsafe(state, previous); rollbackErr == nil {
+				return err
+			} else {
+				state.SetCurrentServer("")
+				return errors.Join(err, fmt.Errorf("restoring previous server: %w", rollbackErr))
+			}
+		}
+		state.SetCurrentServer("")
+		return err
+	}
+	return nil
 }
 
 // ProcessSelectRequest 处理直接选择服务器的请求
@@ -81,18 +96,13 @@ func ProcessSelectRequest(state *types.GlobalState, req types.SwitchRequest) err
 
 	// 验证目标服务器是否在可用列表中
 	var found bool
-	for _, server := range state.HostUrls {
-		if server == req.TargetServer {
-			found = true
-			break
-		}
-	}
+	found = state.HasServer(req.TargetServer)
 
 	if !found {
 		return errors.New("target server not found in available servers")
 	}
 
-	if state.FastestUrl == req.TargetServer {
+	if state.CurrentServer() == req.TargetServer {
 		return errors.New("already connected to target server")
 	}
 
@@ -102,10 +112,8 @@ func ProcessSelectRequest(state *types.GlobalState, req types.SwitchRequest) err
 		return err
 	}
 
-	state.FastestUrl = req.TargetServer
-
 	state.AutoSwitchMutex.Lock()
-	state.LockedServer = state.FastestUrl
+	state.LockedServer = state.CurrentServer()
 	ps := types.PersistedState{
 		AutoSwitchPaused: state.AutoSwitchPaused,
 		LockedServer:     state.LockedServer,

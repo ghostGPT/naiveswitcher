@@ -4,14 +4,28 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"sync"
 )
 
 var (
 	Debug bool
 
-	BasePath string
-	Naive    string
+	BasePath     string
+	naiveVersion string
+	naiveMutex   sync.RWMutex
 )
+
+func GetNaive() string {
+	naiveMutex.RLock()
+	defer naiveMutex.RUnlock()
+	return naiveVersion
+}
+
+func SetNaive(version string) {
+	naiveMutex.Lock()
+	naiveVersion = version
+	naiveMutex.Unlock()
+}
 
 const (
 	UpstreamListenPort = "127.0.0.1:10790"

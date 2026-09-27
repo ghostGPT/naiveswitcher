@@ -88,8 +88,8 @@ func main() {
 	}
 
 	// 初始化服务器列表
-	if len(state.HostUrls) == 0 {
-		state.HostUrls = append(state.HostUrls, cfg.BootstrapNode)
+	if cfg.BootstrapNode != "" {
+		state.SetServers([]string{cfg.BootstrapNode})
 	}
 
 	state.AutoSwitchMutex.RLock()
@@ -99,19 +99,22 @@ func main() {
 
 	if paused && locked != "" {
 		if hostUrls, subErr := subscription.Subscription(cfg.SubscribeURL); subErr == nil {
-			state.HostUrls = hostUrls
+			state.SetServers(hostUrls)
 		} else {
 			log.DebugF("Error updating subscription: %v\n", subErr)
 		}
 		if restartErr := switcher.RestartNaive(state, locked); restartErr != nil {
 			log.DebugF("Locked start error: %v\n", restartErr)
 		} else {
-			state.FastestUrl = locked
+			state.SetCurrentServer(locked)
 		}
 	} else {
-		state.HostUrls, err = switcher.HandleSwitch(state, cfg, state.HostUrls, "")
+		_, servers := state.Servers()
+		servers, err = switcher.HandleSwitch(state, cfg, servers, "")
 		if err != nil {
 			log.DebugF("Bootstrap error: %v (will auto retry)\n", err)
+		} else {
+			state.SetServers(servers)
 		}
 	}
 
@@ -133,19 +136,7 @@ func main() {
 
 	doCheckUpdate <- struct{}{}
 
-	go func() {
-		ticker := time.NewTicker(time.Duration(cfg.AutoSwitchDuration) * time.Minute)
-		for range ticker.C {
-			state.AutoSwitchMutex.RLock()
-			paused := state.AutoSwitchPaused
-			state.AutoSwitchMutex.RUnlock()
-
-			if !paused {
-				doSwitch <- types.SwitchRequest{Type: "auto"}
-				doCheckUpdate <- struct{}{}
-			}
-		}
-	}()
+	go autoSwitchLoop(ctxWithCancel, state, time.Duration(cfg.AutoSwitchDuration)*time.Minute, doSwitch, doCheckUpdate)
 
 	go proxy.ServeTCP(state, l, doSwitch)
 
@@ -157,14 +148,10 @@ func main() {
 	// 1. 先触发 gracefulShutdown 取消所有子 context
 	gracefulShutdown()
 
-	// 2. 关闭通道，通知所有 goroutine 停止接收新请求
-	close(doSwitch)
-	close(doCheckUpdate)
+	// 停止接收连接；通道由发送方使用，不能在这里关闭
+	l.Close()
 
-	// 3. 给 goroutines 一些时间完成当前操作
-	time.Sleep(500 * time.Millisecond)
-
-	// 4. 最后安全地停止 naive 进程
+	// 最后安全地停止 naive 进程
 	state.NaiveCmdLock.Lock()
 	defer state.NaiveCmdLock.Unlock()
 
@@ -186,4 +173,32 @@ func main() {
 	}
 
 	println("Shutdown complete")
+}
+
+func autoSwitchLoop(ctx context.Context, state *types.GlobalState, interval time.Duration, doSwitch chan<- types.SwitchRequest, doCheckUpdate chan<- struct{}) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		state.AutoSwitchMutex.RLock()
+		paused := state.AutoSwitchPaused
+		state.AutoSwitchMutex.RUnlock()
+		if paused {
+			continue
+		}
+		select {
+		case doSwitch <- types.SwitchRequest{Type: "auto"}:
+		case <-ctx.Done():
+			return
+		}
+		select {
+		case doCheckUpdate <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+	}
 }

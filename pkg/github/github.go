@@ -2,7 +2,6 @@ package github
 
 import (
 	"archive/tar"
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -54,12 +53,7 @@ func GitHubDownloadAsset(ctx context.Context, url string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	uncompressedStream, err := xz.NewReader(bytes.NewReader(body))
+	uncompressedStream, err := xz.NewReader(resp.Body)
 	if err != nil {
 		return "", err
 	}
@@ -78,13 +72,32 @@ func GitHubDownloadAsset(ctx context.Context, url string) (string, error) {
 			if filepath.Base(header.Name) != "naive" {
 				continue
 			}
-			outFile, err := os.OpenFile(common.BasePath+"/"+binaryName, os.O_CREATE|os.O_WRONLY, 0755)
-			defer outFile.Close()
+			outFile, err := os.CreateTemp(common.BasePath, binaryName+"-*.tmp")
 			if err != nil {
+				return "", err
+			}
+			defer os.Remove(outFile.Name())
+			defer outFile.Close()
+			if err := outFile.Chmod(0o755); err != nil {
 				return "", err
 			}
 			if _, err := io.Copy(outFile, tarReader); err != nil {
 				return "", err
+			}
+			if err := outFile.Close(); err != nil {
+				return "", err
+			}
+			target := filepath.Join(common.BasePath, binaryName)
+			if err := os.Rename(outFile.Name(), target); err != nil {
+				if !os.IsExist(err) {
+					return "", err
+				}
+				if err := os.Remove(target); err != nil {
+					return "", err
+				}
+				if err := os.Rename(outFile.Name(), target); err != nil {
+					return "", err
+				}
 			}
 			return binaryName, nil
 		}

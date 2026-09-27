@@ -19,14 +19,17 @@ import (
 
 // Init 初始化 naive，查找最新的本地版本
 func Init() error {
-	var err error
-	common.Naive, err = getLatestLocalNaiveVersion(getNaiveList())
+	version, err := getLatestLocalNaiveVersion(getNaiveList())
+	if err == nil {
+		common.SetNaive(version)
+	}
 	return err
 }
 
 // naive version: naiveproxy-v130.0.6723.40-5-mac-x64
 func NaiveCmd(state *types.GlobalState, proxy string) (*exec.Cmd, context.CancelFunc, error) {
-	if common.Naive == "" {
+	version := common.GetNaive()
+	if version == "" {
 		return nil, nil, errors.New("no naive found")
 	}
 	if proxy == "" {
@@ -34,7 +37,7 @@ func NaiveCmd(state *types.GlobalState, proxy string) (*exec.Cmd, context.Cancel
 	}
 	// 创建一个可取消的子context
 	ctx, cancel := context.WithCancel(state.AppContext)
-	cmd := exec.CommandContext(ctx, common.BasePath+"/"+common.Naive, "--listen=socks://"+common.UpstreamListenPort, "--proxy="+proxy)
+	cmd := exec.CommandContext(ctx, common.BasePath+"/"+version, "--listen=socks://"+common.UpstreamListenPort, "--proxy="+proxy)
 
 	// 设置进程组，确保可以杀死整个进程树
 	cmd.SysProcAttr = getSysProcAttr()
