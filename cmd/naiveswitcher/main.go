@@ -140,18 +140,6 @@ func main() {
 
 	go proxy.ServeTCP(state, l, doSwitch)
 
-	if cfg.UDPListen != "" && cfg.UDPListen != cfg.ListenPort {
-		udpListener, err := net.Listen("tcp", cfg.UDPListen)
-		if err != nil {
-			panic(err)
-		}
-		go func() {
-			if err := proxy.ServeUDP(ctxWithCancel, udpListener, common.UpstreamListenPort); err != nil && ctxWithCancel.Err() == nil {
-				log.DebugF("UDP listener stopped: %v\n", err)
-			}
-		}()
-	}
-
 	go api.ServeWeb(state, cfg, doSwitch, doCheckUpdate)
 
 	<-ctx.Done()

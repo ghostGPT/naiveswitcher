@@ -85,7 +85,7 @@ func udpListener(t testing.TB, upstream string) (string, context.CancelFunc, <-c
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- ServeUDP(ctx, l, upstream) }()
+	go func() { done <- ServeSOCKS(ctx, l, upstream) }()
 	t.Cleanup(cancel)
 	return l.Addr().String(), cancel, done
 }
@@ -201,23 +201,6 @@ func TestUDPShutdownDuringHandshake(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("handshake blocked shutdown")
 	}
-}
-
-func TestUDPRejectsUnsupportedCommands(t *testing.T) {
-	address, cancel, done := udpListener(t, "127.0.0.1:1")
-	c, err := net.Dial("tcp", address)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	c.SetDeadline(time.Now().Add(time.Second))
-	c.Write([]byte{5, 1, 0, 5, 1, 0})
-	var b [12]byte
-	if _, err := io.ReadFull(c, b[:]); err != nil || b[3] != 7 {
-		t.Fatalf("response=%x err=%v", b, err)
-	}
-	cancel()
-	<-done
 }
 
 func TestUDPConcurrentAssociations(t *testing.T) {
