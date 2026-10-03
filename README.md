@@ -34,16 +34,13 @@ Usage of ./naiveswitcher:
 服务端 forwardproxy 启用 `uot` 后，可以让 UDP 通过现有官方 NaiveProxy 的
 普通 CONNECT 隧道传输，无需修改或替换 NaiveProxy。当前支持 UoT v2 的单目标模式。
 
-在现有 naiveswitcher 启动参数中增加：
+TCP 和 UDP 默认共用现有 `-l` 入口（默认 `0.0.0.0:1080`），无需增加参数。
+PassWall 的 SOCKS5 节点仍使用 1080，UDP 选择“与 TCP 相同”即可。
+入口按 SOCKS5 命令分流：CONNECT 继续转交官方 Naive，UDP ASSOCIATE 使用 UoT。
+需要 UDP 443 的应用还应移除 PassWall 对该 UDP 端口的丢弃规则。
+先升级并启用服务端 UoT，再使用 UDP；未升级的节点仍可正常使用 TCP。
 
-```sh
--udp-listen 127.0.0.1:1082
-```
-
-这会新增一个只接受 SOCKS5 UDP ASSOCIATE 的入口；原 TCP 入口不变。
-PassWall 的 TCP 节点继续指向原来的 1080，UDP 节点单独配置为 SOCKS5
-`127.0.0.1:1082`，不要再选择“与 TCP 相同”。需要 UDP 443 的应用还应移除
-PassWall 对该 UDP 端口的丢弃规则。先升级服务端，再调整 UDP 节点。
+旧参数 `-udp-listen 127.0.0.1:1082` 仍可额外开启一个 UDP 专用入口，通常无需设置。
 
 也可以使用独立入口做临时测试，避免重启现有 TCP 会话：
 
@@ -53,12 +50,12 @@ go build -o naive-udp ./cmd/naive-udp
 ```
 
 `-upstream` 指向已经运行的官方 NaiveProxy SOCKS5 端口，也可以指向
-naiveswitcher 的 TCP 转发入口。这个独立工具不会切换节点或下载更新。
+naiveswitcher 的 TCP 转发入口。这个独立工具同样支持 TCP/UDP 共用入口，不会切换节点或下载更新。
 
 如果运营商 UDP QoS 严重，Naive 远端应使用 `https://`，以便本地到服务器这段
 走 TLS/TCP。`quic://` 仍然依赖本地 UDP。UoT 不能消除 TCP 丢包重传导致的延迟。
 
-入口默认关闭，启用后默认无 SOCKS 身份认证，建议只监听回环地址交给本机
+统一入口无 SOCKS 身份认证，建议用 `-l 127.0.0.1:1080` 只监听回环地址交给本机
 PassWall 使用。每个入口最多 128 个 SOCKS 关联、256 个 UoT 流，每个关联最多
 64 个目标，每个流最多排队 8 个包；拥塞时丢弃新包，避免无限堆积。空包保留，
 SOCKS UDP 分片不支持，UDP 来源会绑定到控制连接的 IP 和第一个合法包的源端口。

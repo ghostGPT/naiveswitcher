@@ -14,8 +14,8 @@ import (
 
 const udpIdleTimeout = 2 * time.Minute
 
-// ServeUDP serves a separate, opt-in SOCKS5 UDP ASSOCIATE endpoint. TCP users
-// keep the existing transparent listener. Each UDP destination gets its own
+// ServeUDP serves an optional additional UDP-only SOCKS5 endpoint. The main
+// listener already handles both commands. Each UDP destination gets its own
 // ordinary CONNECT stream through the unmodified local Naive client.
 func ServeUDP(ctx context.Context, listener net.Listener, upstream string) error {
 	ctx, cancel := context.WithCancel(ctx)
@@ -53,28 +53,24 @@ func serveUDPAssociation(parent context.Context, control net.Conn, upstream stri
 	stop := context.AfterFunc(ctx, func() { control.Close() })
 	defer stop()
 	_ = control.SetDeadline(time.Now().Add(10 * time.Second))
-	var header [3]byte
-	if _, err := io.ReadFull(control, header[:2]); err != nil || header[0] != 5 || header[1] == 0 {
+	command, err := readSOCKSCommand(control)
+	if err != nil {
 		return
 	}
-	methods := make([]byte, int(header[1]))
-	if _, err := io.ReadFull(control, methods); err != nil {
-		return
-	}
-	if !bytes.Contains(methods, []byte{0}) {
-		_, _ = control.Write([]byte{5, 255})
-		return
-	}
-	if _, err := control.Write([]byte{5, 0}); err != nil {
-		return
-	}
-	if _, err := io.ReadFull(control, header[:]); err != nil || header[0] != 5 || header[2] != 0 {
-		return
-	}
-	if header[1] != 3 {
+	if command != 3 {
 		socksReply(control, 7, nil)
 		return
 	}
+	serveUDPRequest(ctx, control, upstream, flowSlots)
+}
+
+// serveUDPRequest starts after the greeting and command header have been read.
+func serveUDPRequest(parent context.Context, control net.Conn, upstream string, flowSlots chan struct{}) {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	defer control.Close()
+	stop := context.AfterFunc(ctx, func() { control.Close() })
+	defer stop()
 	host, port, err := uot.ReadAddress(control)
 	if err != nil {
 		socksReply(control, 8, nil)

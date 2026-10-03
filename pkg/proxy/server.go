@@ -1,7 +1,7 @@
 package proxy
 
 import (
-	"errors"
+	"context"
 	"io"
 	"net"
 	"sync"
@@ -23,23 +23,17 @@ var DataServerDown = map[[12]byte]struct{}{
 
 const forwardBufferSize = 64 * 1024
 
-// ServeTCP 启动 TCP 代理服务器
+// ServeTCP serves the shared SOCKS TCP/UDP entry point.
 func ServeTCP(state *types.GlobalState, l net.Listener, doSwitch chan<- types.SwitchRequest) {
-	bufPool := &sync.Pool{
-		New: func() any {
-			return make([]byte, forwardBufferSize)
-		},
+	bufPool := &sync.Pool{New: func() any { return make([]byte, forwardBufferSize) }}
+	ctx := state.AppContext
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			log.DebugF("Error accepting connection: %v\n", err)
-			if errors.Is(err, net.ErrClosed) {
-				return
-			}
-			continue
-		}
-		go HandleConnection(state, conn, bufPool, doSwitch)
+	if err := serveSOCKS(ctx, l, common.UpstreamListenPort, func(ctx context.Context, conn net.Conn) {
+		handleConnectionContext(ctx, state, conn, bufPool, doSwitch, common.UpstreamListenPort)
+	}); err != nil && ctx.Err() == nil {
+		log.DebugF("SOCKS listener stopped: %v\n", err)
 	}
 }
 
@@ -49,6 +43,14 @@ func HandleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Poo
 }
 
 func handleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Pool, doSwitch chan<- types.SwitchRequest, upstreamAddress string) {
+	ctx := state.AppContext
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	handleConnectionContext(ctx, state, conn, bufPool, doSwitch, upstreamAddress)
+}
+
+func handleConnectionContext(ctx context.Context, state *types.GlobalState, conn net.Conn, bufPool *sync.Pool, doSwitch chan<- types.SwitchRequest, upstreamAddress string) {
 	defer func() {
 		conn.SetDeadline(time.Now())
 		conn.Close()
@@ -62,9 +64,11 @@ func handleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Poo
 
 	var serverDown bool = true
 
-	naiveConn, err := net.DialTimeout("tcp", upstreamAddress, 3*time.Second)
+	naiveConn, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "tcp", upstreamAddress)
 	if err == nil {
 		defer naiveConn.Close()
+		stop := context.AfterFunc(ctx, func() { naiveConn.Close() })
+		defer stop()
 		uploadDone := make(chan struct{}, 1)
 		go func() {
 			io.Copy(naiveConn, conn)
@@ -77,6 +81,9 @@ func handleConnection(state *types.GlobalState, conn net.Conn, bufPool *sync.Poo
 		closeRead(conn)
 		<-uploadDone
 		serverDown = isServerDown(int(written), buf.([]byte))
+		if socks, ok := conn.(*socksTCPConn); ok {
+			serverDown = isServerDown(int(written), socks.response[:])
+		}
 		bufPool.Put(buf)
 	}
 

@@ -118,7 +118,7 @@ func main() {
 		}
 	}
 
-	// 启动 TCP 监听
+	// 启动统一 SOCKS5 TCP/UDP 入口
 	l, err := net.Listen("tcp", cfg.ListenPort)
 	if err != nil {
 		panic(err)
@@ -140,7 +140,7 @@ func main() {
 
 	go proxy.ServeTCP(state, l, doSwitch)
 
-	if cfg.UDPListen != "" {
+	if cfg.UDPListen != "" && cfg.UDPListen != cfg.ListenPort {
 		udpListener, err := net.Listen("tcp", cfg.UDPListen)
 		if err != nil {
 			panic(err)

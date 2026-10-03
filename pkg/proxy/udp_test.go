@@ -41,10 +41,21 @@ func fakeNaive(t testing.TB) (string, <-chan string) {
 					return
 				}
 				host, port, err := uot.ReadAddress(c)
-				if err != nil || uot.HostPort(host, port) != uot.Authority {
+				if err != nil {
 					return
 				}
 				c.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
+				if host == "failure.test" {
+					return
+				}
+				if host == "tcp.test" {
+					payload, _ := io.ReadAll(c)
+					c.Write(payload)
+					return
+				}
+				if uot.HostPort(host, port) != uot.Authority {
+					return
+				}
 				host, port, err = uot.ReadRequest(c)
 				if err != nil {
 					return

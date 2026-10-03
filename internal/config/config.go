@@ -32,7 +32,7 @@ func (c *Config) ParseFlags() bool {
 
 	flag.StringVar(&c.SubscribeURL, "s", "https://example.com/sublink", "Subscribe to a URL")
 	flag.StringVar(&c.ListenPort, "l", "0.0.0.0:1080", "Listen port")
-	flag.StringVar(&c.UDPListen, "udp-listen", "", "Optional SOCKS5 UDP-over-Naive listener (e.g. 127.0.0.1:1082)")
+	flag.StringVar(&c.UDPListen, "udp-listen", "", "Optional additional UDP-only listener; TCP/UDP already share -l")
 	flag.StringVar(&c.WebPort, "w", "0.0.0.0:1081", "Web port")
 	flag.StringVar(&c.DNSResolverIP, "r", "1.0.0.1:53", "DNS resolver IP")
 	flag.IntVar(&c.AutoSwitchDuration, "a", 30, "Auto switch fastest duration (minutes)")
