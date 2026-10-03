@@ -29,16 +29,16 @@ Usage of ./naiveswitcher:
     	Web 控制台端口 (default "0.0.0.0:1081")
 ```
 
-### 可选的 UDP-over-Naive
+### UDP-over-Naive
 
-服务端 forwardproxy 启用 `uot` 后，可以让 UDP 通过现有官方 NaiveProxy 的
+升级服务端 forwardproxy 后，即可让 UDP 通过现有官方 NaiveProxy 的
 普通 CONNECT 隧道传输，无需修改或替换 NaiveProxy。当前支持 UoT v2 的单目标模式。
 
 TCP 和 UDP 默认共用现有 `-l` 入口（默认 `0.0.0.0:1080`），无需增加参数。
 PassWall 的 SOCKS5 节点仍使用 1080，UDP 选择“与 TCP 相同”即可。
 入口按 SOCKS5 命令分流：CONNECT 继续转交官方 Naive，UDP ASSOCIATE 使用 UoT。
 需要 UDP 443 的应用还应移除 PassWall 对该 UDP 端口的丢弃规则。
-先升级并启用服务端 UoT，再使用 UDP；未升级的节点仍可正常使用 TCP。
+服务端自动支持 UoT，无需添加配置项。先升级服务端再使用 UDP；未升级的节点仍可正常使用 TCP。
 
 也可以使用独立入口做临时测试，避免重启现有 TCP 会话：
 
@@ -60,8 +60,8 @@ SOCKS UDP 分片不支持，UDP 来源会绑定到控制连接的 IP 和第一�
 关联或流空闲两分钟会释放，控制连接关闭会清理其所有流。
 
 同一 UDP 目标始终使用同一个 UoT 流和服务端 UDP socket，保持源端口稳定。
-切换 Naive 节点会中断现有流；后续包会重新建立连接。测试期间应固定到已启用
-UoT 的服务端，不能让自动切换选到未升级的节点。
+切换 Naive 节点会中断现有流；后续包会重新建立连接。测试期间应固定到已升级的
+服务端，不能让自动切换选到未升级的节点。
 
 ```sh
 go test -race ./...
