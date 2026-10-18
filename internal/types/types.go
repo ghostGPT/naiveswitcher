@@ -50,8 +50,10 @@ func SavePersistedState(basePath string, ps PersistedState) error {
 }
 
 // SwitchRequest 定义切换请求的类型
-// Type: "auto", "avoid", "avoid_auto", "select"
+// Type: "auto", "avoid", "avoid_auto", "select", "recover"
 type SwitchRequest struct {
+	Generation   uint64     // 连接所属的进程代次
+	Coalesced    bool       // 由 QueueAutoSwitch 管理的自动请求
 	Type         string     // "auto", "avoid", "select", "avoid_auto"
 	TargetServer string     // 目标服务器（用于select类型）
 	AvoidServer  string     // 避免的服务器（用于avoid类型）
@@ -64,6 +66,7 @@ type GlobalState struct {
 	ErrorCount              int32 // 使用 int32 以便使用 atomic 操作
 	NaiveCmd                *exec.Cmd
 	NaiveCmdCancel          context.CancelFunc // naive进程的取消函数
+	NaiveDone               <-chan struct{}    // 唯一的 Wait goroutine 关闭此通道
 	NaiveCmdLock            sync.Mutex
 	FastestUrl              string
 	HostUrls                []string
@@ -77,6 +80,7 @@ type GlobalState struct {
 	StartTime               int64           // 启动时间戳
 	Switching               int32           // 切换中标志，使用 atomic 操作
 	Checking                int32           // 更新检查中标志，使用 atomic 操作
+	health                  healthState
 }
 
 func (s *GlobalState) Servers() (string, []string) {
@@ -117,5 +121,24 @@ func (s *GlobalState) HasServer(server string) bool {
 func (s *GlobalState) IsNaiveRunning() bool {
 	s.NaiveCmdLock.Lock()
 	defer s.NaiveCmdLock.Unlock()
-	return s.NaiveCmd != nil
+	return s.naiveRunningLocked()
+}
+
+func (s *GlobalState) naiveRunningLocked() bool {
+	if s.NaiveCmd == nil {
+		return false
+	}
+	select {
+	case <-s.NaiveDone:
+		return false
+	default:
+		return true
+	}
+}
+
+// ProxySnapshot binds a connection to a process while restart holds NaiveCmdLock.
+func (s *GlobalState) ProxySnapshot() (string, uint64, bool) {
+	s.NaiveCmdLock.Lock()
+	defer s.NaiveCmdLock.Unlock()
+	return s.CurrentServer(), s.Generation(), s.naiveRunningLocked()
 }

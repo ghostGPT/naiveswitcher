@@ -15,7 +15,7 @@ import (
 	"naiveswitcher/internal/uot"
 )
 
-func mixedListener(t *testing.T, upstream string, useSwitcher bool) (string, *types.GlobalState, context.CancelFunc, <-chan error) {
+func mixedListener(t testing.TB, upstream string, useSwitcher bool) (string, *types.GlobalState, context.CancelFunc, <-chan error) {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -31,9 +31,10 @@ func mixedListener(t *testing.T, upstream string, useSwitcher bool) (string, *ty
 			return
 		}
 		pool := &sync.Pool{New: func() any { return make([]byte, forwardBufferSize) }}
+		requests := make(chan types.SwitchRequest, 1)
 		done <- serveSOCKS(ctx, l, upstream, func(ctx context.Context, c net.Conn) {
-			handleConnectionContext(ctx, state, c, pool, make(chan types.SwitchRequest, 1), upstream)
-		})
+			handleConnectionContext(ctx, state, c, pool, requests, upstream)
+		}, udpFailureObserver(state, requests))
 	}()
 	return l.Addr().String(), state, cancel, done
 }

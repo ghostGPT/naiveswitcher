@@ -12,6 +12,8 @@ import (
 
 // KillProcessGroup 终止整个进程组
 func KillProcessGroup(state *types.GlobalState, pid int) {
+	// Signal the group even if Wait has reaped its leader: descendants may
+	// still be alive after CommandContext cancels the parent process.
 	pgid := pid // 进程组ID默认等于进程ID（因为我们设置了Setpgid）
 
 	// 先尝试发送 SIGTERM 到整个进程组，给进程优雅退出的机会
@@ -26,19 +28,18 @@ func KillProcessGroup(state *types.GlobalState, pid int) {
 	}
 
 	// 等待进程退出，带超时机制
-	done := make(chan error, 1)
-	go func() {
-		done <- state.NaiveCmd.Wait()
-	}()
+	done := state.NaiveDone
+	if done == nil {
+		// Compatibility for commands started outside StartProcess.
+		waited := make(chan struct{})
+		cmd := state.NaiveCmd
+		go func() { cmd.Wait(); close(waited) }()
+		done = waited
+	}
 
 	// 等待最多2秒
 	select {
-	case err := <-done:
-		if err != nil {
-			log.DebugF("Naive process (PID: %d) exited with error: %v\n", pid, err)
-		} else {
-			log.DebugF("Naive process (PID: %d) exited gracefully\n", pid)
-		}
+	case <-done:
 	case <-time.After(2 * time.Second):
 		// 超时后强制杀死整个进程组
 		log.DebugF("Naive process (PID: %d) did not exit after SIGTERM, sending SIGKILL to process group\n", pid)

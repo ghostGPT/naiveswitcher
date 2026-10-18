@@ -11,7 +11,6 @@ import (
 	"runtime/metrics"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	proping "github.com/prometheus-community/pro-bing"
@@ -224,7 +223,7 @@ func handleStatusAPI(state *types.GlobalState, config *config.Config, w http.Res
 	current, servers := state.Servers()
 	data := map[string]interface{}{
 		"current_server":     current,
-		"error_count":        atomic.LoadInt32(&state.ErrorCount),
+		"error_count":        state.RecentFailureCount(time.Now()),
 		"down_stats":         downStatsCopy,
 		"naive_version":      common.GetNaive(),
 		"switcher_version":   config.Version,

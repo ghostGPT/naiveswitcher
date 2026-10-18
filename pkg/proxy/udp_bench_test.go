@@ -6,14 +6,18 @@ import (
 	"time"
 )
 
-func BenchmarkUDPOverNaive(b *testing.B) {
+func BenchmarkUDPOverNaive(b *testing.B) { benchmarkUDPOverNaive(b, false) }
+
+func BenchmarkUDPOverNaiveSwitcher(b *testing.B) { benchmarkUDPOverNaive(b, true) }
+
+func benchmarkUDPOverNaive(b *testing.B, switcher bool) {
 	for _, size := range []struct {
 		name string
 		n    int
 	}{{"voice320", 320}, {"mtu1200", 1200}} {
 		b.Run(size.name, func(b *testing.B) {
 			upstream, _ := fakeNaive(b)
-			address, cancel, done := udpListener(b, upstream)
+			address, _, cancel, done := mixedListener(b, upstream, switcher)
 			control, udp, relay := associate(b, address)
 			defer func() { control.Close(); cancel(); <-done }()
 			frame := append([]byte{0, 0, 0, 1, 1, 2, 3, 4, 0, 53}, bytes.Repeat([]byte{1}, size.n)...)

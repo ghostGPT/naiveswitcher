@@ -5,9 +5,11 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"naiveswitcher/internal/config"
 	"naiveswitcher/internal/types"
@@ -44,6 +46,7 @@ func TestSwitcherRefreshesServersWhenCurrentRemainsBest(t *testing.T) {
 	defer func() { http.DefaultClient = previousClient }()
 
 	state := &types.GlobalState{AppContext: context.Background(), ServerDownPriority: make(map[string]int)}
+	state.NaiveCmd = &exec.Cmd{} // The existing process is still alive.
 	state.SetCurrentServer(target)
 	state.SetServers([]string{"https://old.example"})
 	requests := make(chan types.SwitchRequest, 1)
@@ -76,5 +79,39 @@ func TestRestartNaiveRejectsCanceledApplication(t *testing.T) {
 	state := &types.GlobalState{AppContext: ctx}
 	if err := RestartNaive(state, "https://example.com"); err == nil {
 		t.Fatal("restart reported success after shutdown")
+	}
+}
+
+func TestStaleAutomaticRequestDoesNotProbeOrSwitch(t *testing.T) {
+	state := &types.GlobalState{AppContext: context.Background(), ServerDownPriority: make(map[string]int)}
+	state.SetCurrentServer("https://new.example")
+	state.AdvanceGeneration()
+	req := types.SwitchRequest{Type: "avoid_auto", AvoidServer: "https://old.example", Coalesced: true, Generation: 0}
+	if err := processRequest(state, &config.Config{SubscribeURL: "invalid"}, req); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.ServerDownPriority) != 0 || state.CurrentServer() != "https://new.example" {
+		t.Fatal("stale event affected current node")
+	}
+}
+
+func TestMonitorRetriesRecentFailuresWithoutNewTraffic(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	state := &types.GlobalState{AppContext: ctx, NaiveCmd: &exec.Cmd{}}
+	state.SetCurrentServer("https://failed.example")
+	for i := 0; i < types.FailureThreshold; i++ {
+		state.RecordFailure(state.Generation(), time.Now())
+	}
+	requests := make(chan types.SwitchRequest, 10)
+	done := make(chan struct{})
+	go func() { defer close(done); monitorProcess(state, requests, time.Millisecond) }()
+	defer func() { cancel(); <-done }()
+	select {
+	case req := <-requests:
+		if req.Type != "avoid_auto" || req.AvoidServer != "https://failed.example" {
+			t.Fatalf("unexpected retry: %+v", req)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("recent failure retry required new traffic")
 	}
 }

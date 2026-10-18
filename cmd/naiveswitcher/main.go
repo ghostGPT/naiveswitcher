@@ -131,6 +131,7 @@ func main() {
 	doCheckUpdate := make(chan struct{}, 10)
 
 	go switcher.Switcher(state, cfg, doSwitch)
+	go switcher.MonitorProcess(state, doSwitch)
 
 	go updater.Updater(state, cfg, gracefulShutdown, doCheckUpdate)
 
@@ -190,11 +191,7 @@ func autoSwitchLoop(ctx context.Context, state *types.GlobalState, interval time
 		if paused {
 			continue
 		}
-		select {
-		case doSwitch <- types.SwitchRequest{Type: "auto"}:
-		case <-ctx.Done():
-			return
-		}
+		state.QueueAutoSwitch(doSwitch, types.SwitchRequest{Type: "auto", Generation: state.Generation()})
 		select {
 		case doCheckUpdate <- struct{}{}:
 		case <-ctx.Done():

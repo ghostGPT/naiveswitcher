@@ -1,10 +1,12 @@
 package switcher
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
 	"sync/atomic"
+	"time"
 
 	"naiveswitcher/internal/config"
 	"naiveswitcher/internal/types"
@@ -13,80 +15,128 @@ import (
 	"naiveswitcher/pkg/subscription"
 )
 
-// Switcher 处理切换请求
-// 注意：此函数在单个 goroutine 中运行，从 doSwitch channel 顺序处理请求
-// 使用原子标志避免并发切换，如果正在切换中则跳过新请求
+// Switcher serializes manual requests, recovery and automatic selection.
 func Switcher(state *types.GlobalState, cfg *config.Config, doSwitch <-chan types.SwitchRequest) {
-	for switchReq := range doSwitch {
-		state.AutoSwitchMutex.RLock()
-		paused := state.AutoSwitchPaused
-		state.AutoSwitchMutex.RUnlock()
-		if paused && !isManualSwitchType(switchReq.Type) {
-			log.DebugF("Auto switch paused, ignoring request type: %s\n", switchReq.Type)
-			if switchReq.Result != nil {
-				switchReq.Result <- errors.New("auto switch paused")
+	ctx := state.AppContext
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case req, ok := <-doSwitch:
+			if !ok {
+				return
 			}
-			continue
-		}
-
-		// 检查是否正在切换，如果是则跳过
-		if !atomic.CompareAndSwapInt32(&state.Switching, 0, 1) {
-			log.DebugF("Already switching, skipping request\n")
-			if switchReq.Result != nil {
-				switchReq.Result <- errors.New("already switching")
+			err := processRequest(state, cfg, req)
+			if req.Coalesced {
+				state.FinishAutoSwitch()
 			}
-			continue
-		}
-
-		atomic.StoreInt32(&state.ErrorCount, 0)
-		log.DebugF("Switch request: Type=%s, Target=%s, Avoid=%s\n",
-			switchReq.Type, switchReq.TargetServer, switchReq.AvoidServer)
-
-		// 确保有可用的服务器
-		_, servers := state.Servers()
-		if len(servers) == 0 && cfg.BootstrapNode != "" {
-			servers = []string{cfg.BootstrapNode}
-			state.SetServers(servers)
-		}
-
-		var err error
-		switch switchReq.Type {
-		case "select":
-			err = ProcessSelectRequest(state, switchReq)
-		case "avoid":
-			servers, err = HandleSwitch(state, cfg, servers, switchReq.AvoidServer)
-		case "avoid_auto":
-			servers, err = HandleSwitch(state, cfg, servers, switchReq.AvoidServer)
-		case "auto":
-			servers, err = HandleSwitch(state, cfg, servers, "")
-		default:
-			err = fmt.Errorf("unknown switch type: %s", switchReq.Type)
-		}
-		if switchReq.Type != "select" && err == nil {
-			state.SetServers(servers)
-		}
-
-		if err != nil {
-			log.DebugF("Error switching: %v\n", err)
-		} else if switchReq.Type == "avoid" {
-			state.AutoSwitchMutex.Lock()
-			state.LockedServer = state.CurrentServer()
-			ps := types.PersistedState{
-				AutoSwitchPaused: state.AutoSwitchPaused,
-				LockedServer:     state.LockedServer,
+			if req.Result != nil {
+				req.Result <- err
 			}
-			state.AutoSwitchMutex.Unlock()
-			if persistErr := types.SavePersistedState(common.BasePath, ps); persistErr != nil {
-				log.DebugF("Save persisted state error: %v\n", persistErr)
+			if err != nil {
+				log.DebugF("Error switching: %v\n", err)
 			}
 		}
+	}
+}
 
-		atomic.StoreInt32(&state.ErrorCount, 0)
-		atomic.StoreInt32(&state.Switching, 0) // 重置切换标志
-		if switchReq.Result != nil {
-			switchReq.Result <- err
+func processRequest(state *types.GlobalState, cfg *config.Config, req types.SwitchRequest) error {
+	if req.Coalesced && req.Generation != state.Generation() {
+		return nil
+	}
+	state.AutoSwitchMutex.RLock()
+	paused := state.AutoSwitchPaused
+	locked := state.LockedServer
+	state.AutoSwitchMutex.RUnlock()
+	if paused && !isManualSwitchType(req.Type) && req.Type != "recover" {
+		return errors.New("auto switch paused")
+	}
+	if req.Type == "avoid_auto" && req.AvoidServer != state.CurrentServer() {
+		return nil
+	}
+	if !atomic.CompareAndSwapInt32(&state.Switching, 0, 1) {
+		return errors.New("already switching")
+	}
+	defer atomic.StoreInt32(&state.Switching, 0)
+
+	if req.Type == "recover" {
+		if state.IsNaiveRunning() {
+			return nil
 		}
-		log.DebugF("Switching done\n")
+		if !state.BeginRecovery(time.Now()) {
+			return nil
+		}
+		current := state.CurrentServer()
+		if current == "" && paused {
+			current = locked
+		}
+		if current != "" {
+			return RestartNaive(state, current)
+		}
+		if paused {
+			return errors.New("auto switch paused and no current server to recover")
+		}
+	} else if !isManualSwitchType(req.Type) && !state.BeginAutoSwitch(time.Now()) {
+		return nil
+	}
+
+	_, servers := state.Servers()
+	if len(servers) == 0 && cfg.BootstrapNode != "" {
+		servers = []string{cfg.BootstrapNode}
+		state.SetServers(servers)
+	}
+	var err error
+	switch req.Type {
+	case "select":
+		return ProcessSelectRequest(state, req)
+	case "avoid", "avoid_auto":
+		servers, err = HandleSwitch(state, cfg, servers, req.AvoidServer)
+	case "auto":
+		servers, err = handleSwitch(state, cfg, servers, "", true)
+	case "recover":
+		servers, err = HandleSwitch(state, cfg, servers, "")
+	default:
+		return fmt.Errorf("unknown switch type: %s", req.Type)
+	}
+	if err != nil {
+		return err
+	}
+	state.SetServers(servers)
+	if req.Type == "avoid" {
+		state.AutoSwitchMutex.Lock()
+		state.LockedServer = state.CurrentServer()
+		ps := types.PersistedState{AutoSwitchPaused: state.AutoSwitchPaused, LockedServer: state.LockedServer}
+		state.AutoSwitchMutex.Unlock()
+		if err := types.SavePersistedState(common.BasePath, ps); err != nil {
+			log.DebugF("Save persisted state error: %v\n", err)
+		}
+	}
+	return nil
+}
+
+// MonitorProcess also retries failed startup without requiring user traffic.
+func MonitorProcess(state *types.GlobalState, doSwitch chan<- types.SwitchRequest) {
+	monitorProcess(state, doSwitch, 5*time.Second)
+}
+
+func monitorProcess(state *types.GlobalState, doSwitch chan<- types.SwitchRequest, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-state.AppContext.Done():
+			return
+		case <-ticker.C:
+			server, generation, running := state.ProxySnapshot()
+			if !running {
+				state.QueueAutoSwitch(doSwitch, types.SwitchRequest{Type: "recover", Generation: generation})
+			} else if state.RecentFailureCount(time.Now()) >= types.FailureThreshold {
+				state.QueueAutoSwitch(doSwitch, types.SwitchRequest{Type: "avoid_auto", AvoidServer: server, Generation: generation})
+			}
+		}
 	}
 }
 
@@ -96,6 +146,10 @@ func isManualSwitchType(t string) bool {
 
 // HandleSwitch 处理服务器切换逻辑
 func HandleSwitch(state *types.GlobalState, cfg *config.Config, oldHostUrls []string, deadServer string) ([]string, error) {
+	return handleSwitch(state, cfg, oldHostUrls, deadServer, false)
+}
+
+func handleSwitch(state *types.GlobalState, cfg *config.Config, oldHostUrls []string, deadServer string, periodic bool) ([]string, error) {
 	// 记录故障服务器
 	if deadServer != "" {
 		u, err := url.Parse(deadServer)
@@ -117,14 +171,19 @@ func HandleSwitch(state *types.GlobalState, cfg *config.Config, oldHostUrls []st
 
 	// Fastest 会清理和调整优先级，必须获取写锁
 	state.ServerDownPriorityMutex.Lock()
-	newFastestUrl, err := subscription.Fastest(hostUrls, state.ServerDownPriority, deadServer)
+	var newFastestUrl string
+	if periodic && state.IsNaiveRunning() {
+		newFastestUrl, err = subscription.FastestWithCurrent(hostUrls, state.ServerDownPriority, state.CurrentServer())
+	} else {
+		newFastestUrl, err = subscription.Fastest(hostUrls, state.ServerDownPriority, deadServer)
+	}
 	state.ServerDownPriorityMutex.Unlock()
 	if err != nil {
 		log.DebugF("Error choosing fastest: %v\n", err)
 		return oldHostUrls, err
 	}
 
-	if state.CurrentServer() == newFastestUrl {
+	if state.CurrentServer() == newFastestUrl && state.IsNaiveRunning() {
 		return hostUrls, nil
 	}
 

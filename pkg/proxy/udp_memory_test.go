@@ -13,7 +13,7 @@ func TestProfileUDPFrontendMemory(t *testing.T) {
 		t.Skip("manual memory profile")
 	}
 	upstream, targets := fakeNaive(t)
-	address, cancel, done := udpListener(t, upstream)
+	address, _, cancel, done := mixedListener(t, upstream, true)
 	var before, active, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
@@ -52,7 +52,7 @@ func TestProfileUDPFrontendMemory(t *testing.T) {
 	runtime.GC()
 	runtime.GC()
 	runtime.ReadMemStats(&after)
-	t.Logf("64 UDP associations + fake upstream heap before=%d active=%d after=%d; goroutines before=%d active=%d after=%d", before.HeapAlloc, active.HeapAlloc, after.HeapAlloc, beforeG, activeG, runtime.NumGoroutine())
+	t.Logf("64 switcher UDP associations + fake upstream heap before=%d active=%d after=%d; goroutines before=%d active=%d after=%d", before.HeapAlloc, active.HeapAlloc, after.HeapAlloc, beforeG, activeG, runtime.NumGoroutine())
 	t.Logf("stack bytes before=%d active=%d after=%d", before.StackInuse, active.StackInuse, after.StackInuse)
 	if int64(after.HeapAlloc)-int64(before.HeapAlloc) > 2<<20 {
 		t.Fatal("excess retained heap after association close")

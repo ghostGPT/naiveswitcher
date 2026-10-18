@@ -15,7 +15,7 @@ import (
 const udpIdleTimeout = 2 * time.Minute
 
 // serveUDPRequest starts after the greeting and command header have been read.
-func serveUDPRequest(parent context.Context, control net.Conn, upstream string, flowSlots chan struct{}) {
+func serveUDPRequest(parent context.Context, control net.Conn, upstream string, flowSlots chan struct{}, observers ...func() func(error)) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	defer control.Close()
@@ -99,7 +99,14 @@ func serveUDPRequest(parent context.Context, control net.Conn, upstream string, 
 				defer wg.Done()
 				defer func() { <-flowSlots }()
 				defer func() { mu.Lock(); delete(flows, key); mu.Unlock() }()
-				_ = relayUDPFlow(ctx, upstream, target, targetPort, queue, udp, client)
+				var report func(error)
+				if len(observers) > 0 {
+					report = observers[0]()
+				}
+				err := relayUDPFlow(ctx, upstream, target, targetPort, queue, udp, client)
+				if report != nil && ctx.Err() == nil {
+					report(err)
+				}
 				// Avoid reconnect storms if an old server rejects the UoT endpoint.
 				select {
 				case <-ctx.Done():
@@ -130,6 +137,10 @@ func socksReply(w io.Writer, code byte, addr *net.UDPAddr) error {
 	return err
 }
 
+// upstreamConnectError identifies failures establishing the shared proxy tunnel,
+// excluding UDP destination errors, idle expiry and association cancellation.
+type upstreamConnectError struct{ error }
+
 func relayUDPFlow(ctx context.Context, upstream, host string, port uint16, queue <-chan []byte, udp *net.UDPConn, client *net.UDPAddr) error {
 	dialer, err := proxy.SOCKS5("tcp", upstream, nil, &net.Dialer{Timeout: 5 * time.Second})
 	if err != nil {
@@ -139,7 +150,7 @@ func relayUDPFlow(ctx context.Context, upstream, host string, port uint16, queue
 	conn, err := dialer.(proxy.ContextDialer).DialContext(dialCtx, "tcp", uot.Authority)
 	cancel()
 	if err != nil {
-		return err
+		return upstreamConnectError{err}
 	}
 	defer conn.Close()
 	stop := context.AfterFunc(ctx, func() { conn.Close() })

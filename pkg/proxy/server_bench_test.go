@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net"
 	"os/exec"
@@ -81,7 +82,7 @@ func benchmarkTCPStream(b *testing.B, bufferSize int) {
 	}
 }
 
-func benchmarkProxy(b *testing.B, bufferSize int) (string, func()) {
+func benchmarkProxy(b testing.TB, bufferSize int) (string, func()) {
 	upstream, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		b.Fatal(err)
@@ -91,26 +92,64 @@ func benchmarkProxy(b *testing.B, bufferSize int) (string, func()) {
 		upstream.Close()
 		b.Fatal(err)
 	}
-	state := &types.GlobalState{NaiveCmd: &exec.Cmd{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	state := &types.GlobalState{NaiveCmd: &exec.Cmd{}, AppContext: ctx}
+	var wg sync.WaitGroup
+	wg.Add(2)
 	pool := &sync.Pool{New: func() any { return make([]byte, bufferSize) }}
 	switches := make(chan types.SwitchRequest, 1)
 	go func() {
+		defer wg.Done()
 		for {
 			conn, err := upstream.Accept()
 			if err != nil {
 				return
 			}
-			go func() { defer conn.Close(); io.Copy(conn, conn) }()
+			wg.Add(1)
+			go func() { defer wg.Done(); defer conn.Close(); io.Copy(conn, conn) }()
 		}
 	}()
 	go func() {
+		defer wg.Done()
 		for {
 			conn, err := front.Accept()
 			if err != nil {
 				return
 			}
-			go handleConnection(state, conn, pool, switches, upstream.Addr().String())
+			wg.Add(1)
+			go func() { defer wg.Done(); handleConnection(state, conn, pool, switches, upstream.Addr().String()) }()
 		}
 	}()
-	return front.Addr().String(), func() { front.Close(); upstream.Close() }
+	return front.Addr().String(), func() { cancel(); front.Close(); upstream.Close(); wg.Wait() }
+}
+
+// With -cpu=4 this runs sixteen concurrent persistent connections.
+// Reuse connections so TIME_WAIT port exhaustion does not dominate the result.
+func BenchmarkTCPForwardParallel64KiB(b *testing.B) {
+	address, cleanup := benchmarkProxy(b, forwardBufferSize)
+	defer cleanup()
+	payload := bytes.Repeat([]byte("x"), 64<<10)
+	b.SetBytes(int64(len(payload)))
+	b.SetParallelism(4)
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		response := make([]byte, len(payload))
+		conn, err := net.Dial("tcp", address)
+		if err != nil {
+			b.Fatal(err)
+		}
+		defer conn.Close()
+		for pb.Next() {
+			if _, err = conn.Write(payload); err != nil {
+				conn.Close()
+				b.Fatal(err)
+			}
+			if _, err = io.ReadFull(conn, response); err != nil {
+				conn.Close()
+				b.Fatal(err)
+			}
+		}
+	})
+	b.StopTimer()
 }

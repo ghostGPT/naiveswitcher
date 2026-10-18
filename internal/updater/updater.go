@@ -97,7 +97,7 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 				common.SetNaive(oldNaive)
 				return
 			}
-			if err := state.NaiveCmd.Start(); err != nil {
+			if err := naive.StartProcess(state); err != nil {
 				log.DebugF("Error starting naive after update: %v\n", err)
 				// 如果启动失败，取消 context 释放资源
 				if state.NaiveCmdCancel != nil {
@@ -108,7 +108,7 @@ func Updater(state *types.GlobalState, config *config.Config, gracefulShutdown c
 				common.SetNaive(oldNaive)
 				state.NaiveCmd, state.NaiveCmdCancel, err = naive.NaiveCmd(state, state.CurrentServer())
 				if err == nil {
-					if err = state.NaiveCmd.Start(); err != nil {
+					if err = naive.StartProcess(state); err != nil {
 						state.NaiveCmdCancel()
 						state.NaiveCmdCancel = nil
 						state.NaiveCmd = nil

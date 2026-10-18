@@ -48,7 +48,7 @@ func startNaiveUnsafe(state *types.GlobalState, targetServer string) error {
 		log.DebugF("Error creating naive command: %v\n", err)
 		return err
 	}
-	if err := state.NaiveCmd.Start(); err != nil {
+	if err := naive.StartProcess(state); err != nil {
 		log.DebugF("Error starting naive: %v\n", err)
 		// 如果启动失败，取消 context 释放资源
 		if state.NaiveCmdCancel != nil {

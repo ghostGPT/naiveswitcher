@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -66,6 +67,19 @@ func Subscription(subscribeURL string) ([]string, error) {
 }
 
 func Fastest(hostUrls []string, serverPriority map[string]int, deadServer string) (string, error) {
+	return fastest(hostUrls, serverPriority, deadServer, "")
+}
+
+// FastestWithCurrent requires a meaningful improvement before disrupting sessions.
+func FastestWithCurrent(hostUrls []string, serverPriority map[string]int, current string) (string, error) {
+	return fastest(hostUrls, serverPriority, "", current)
+}
+
+func worthSwitching(current, candidate time.Duration) bool {
+	return current-candidate >= 50*time.Millisecond && candidate <= current*4/5
+}
+
+func fastest(hostUrls []string, serverPriority map[string]int, deadServer, current string) (string, error) {
 	hostIps := util.BatchLookupURLsIP(hostUrls)
 	ipHostMap := make(map[string][]util.HostIps)
 	for _, ips := range hostIps {
@@ -80,19 +94,21 @@ func Fastest(hostUrls []string, serverPriority map[string]int, deadServer string
 	}
 
 	type result struct {
-		host *url.URL
-		err  error
+		host    *url.URL
+		err     error
+		elapsed time.Duration
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	results := make(chan result, len(ipHostMap))
+	results := make(chan result, len(ipHostMap)+1)
 	closeLock := new(sync.Mutex)
 	var closed bool
 
 	aliveHosts := new(sync.Map)
 
+	var probes []string
 	for _, hosts := range ipHostMap {
 		var u string
 		if len(hosts) == 1 {
@@ -104,14 +120,22 @@ func Fastest(hostUrls []string, serverPriority map[string]int, deadServer string
 				goto RE_RAND
 			}
 		}
+		probes = append(probes, u)
+	}
+	// Always measure the current node, even if another hostname shares its IP.
+	if current != "" && slices.Contains(hostUrls, current) && !slices.Contains(probes, current) {
+		probes = append(probes, current)
+	}
+	for _, u := range probes {
 		go func(host string) {
+			started := time.Now()
 			var finalError error
 			var proxyUrl *url.URL
 
 			defer func() {
 				closeLock.Lock()
 				if !closed {
-					results <- result{host: proxyUrl, err: finalError}
+					results <- result{host: proxyUrl, err: finalError, elapsed: time.Since(started)}
 				}
 				closeLock.Unlock()
 			}()
@@ -146,6 +170,7 @@ func Fastest(hostUrls []string, serverPriority map[string]int, deadServer string
 		}(u)
 	}
 
+	latencies := make(map[string]time.Duration)
 	var fastest []*url.URL
 	var resultCount int
 	for res := range results {
@@ -154,8 +179,9 @@ func Fastest(hostUrls []string, serverPriority map[string]int, deadServer string
 			log.DebugF("check activity failed, host: %s, error: %s\n", res.host, res.err)
 		} else {
 			fastest = append(fastest, res.host)
+			latencies[res.host.String()] = res.elapsed
 		}
-		if len(fastest) > 2 || resultCount >= len(ipHostMap) {
+		if (current == "" && len(fastest) > 2) || resultCount >= len(probes) {
 			break
 		}
 	}
@@ -170,7 +196,10 @@ func Fastest(hostUrls []string, serverPriority map[string]int, deadServer string
 	}
 
 	slices.SortFunc(fastest, func(a, b *url.URL) int {
-		return serverPriority[a.Hostname()] - serverPriority[b.Hostname()]
+		if priority := cmp.Compare(serverPriority[a.Hostname()], serverPriority[b.Hostname()]); priority != 0 {
+			return priority
+		}
+		return cmp.Compare(latencies[a.String()], latencies[b.String()])
 	})
 
 	var minCount int
@@ -192,6 +221,12 @@ func Fastest(hostUrls []string, serverPriority map[string]int, deadServer string
 		}
 	}
 
+	if currentLatency, healthy := latencies[current]; current != "" && healthy {
+		candidateLatency := latencies[fastest[0].String()]
+		if !worthSwitching(currentLatency, candidateLatency) {
+			return current, nil
+		}
+	}
 	if deadServer == "" || len(fastest) == 1 {
 		return fastest[0].String(), nil
 	}

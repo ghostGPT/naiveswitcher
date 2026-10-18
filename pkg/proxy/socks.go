@@ -35,7 +35,7 @@ func ServeSOCKS(ctx context.Context, listener net.Listener, upstream string) err
 	})
 }
 
-func serveSOCKS(ctx context.Context, listener net.Listener, upstream string, tcp func(context.Context, net.Conn)) error {
+func serveSOCKS(ctx context.Context, listener net.Listener, upstream string, tcp func(context.Context, net.Conn), observers ...func() func(error)) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stop := context.AfterFunc(ctx, func() { listener.Close() })
@@ -80,7 +80,7 @@ func serveSOCKS(ctx context.Context, listener net.Listener, upstream string, tcp
 				select {
 				case associations <- struct{}{}:
 					defer func() { <-associations }()
-					serveUDPRequest(ctx, conn, upstream, flows)
+					serveUDPRequest(ctx, conn, upstream, flows, observers...)
 				default:
 					socksReply(conn, 1, nil)
 				}

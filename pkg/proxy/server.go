@@ -2,10 +2,10 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"naiveswitcher/internal/types"
@@ -32,7 +32,7 @@ func ServeTCP(state *types.GlobalState, l net.Listener, doSwitch chan<- types.Sw
 	}
 	if err := serveSOCKS(ctx, l, common.UpstreamListenPort, func(ctx context.Context, conn net.Conn) {
 		handleConnectionContext(ctx, state, conn, bufPool, doSwitch, common.UpstreamListenPort)
-	}); err != nil && ctx.Err() == nil {
+	}, udpFailureObserver(state, doSwitch)); err != nil && ctx.Err() == nil {
 		log.DebugF("SOCKS listener stopped: %v\n", err)
 	}
 }
@@ -56,15 +56,19 @@ func handleConnectionContext(ctx context.Context, state *types.GlobalState, conn
 		conn.Close()
 	}()
 
-	if !state.IsNaiveRunning() {
+	server, generation, running := state.ProxySnapshot()
+	if !running {
 		log.DebugF("No naive running\n")
-		queueSwitch(doSwitch, types.SwitchRequest{Type: "auto"})
+		state.QueueAutoSwitch(doSwitch, types.SwitchRequest{Type: "recover", Generation: generation})
 		return
 	}
 
 	var serverDown bool = true
 
 	naiveConn, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "tcp", upstreamAddress)
+	if err != nil && ctx.Err() != nil {
+		return
+	}
 	if err == nil {
 		defer naiveConn.Close()
 		stop := context.AfterFunc(ctx, func() { naiveConn.Close() })
@@ -87,29 +91,8 @@ func handleConnectionContext(ctx context.Context, state *types.GlobalState, conn
 		bufPool.Put(buf)
 	}
 
-	// 更新错误计数
-	if serverDown {
-		newCount := atomic.AddInt32(&state.ErrorCount, 1)
-		// 错误过多时触发切换
-		if newCount > 10 {
-			atomic.StoreInt32(&state.ErrorCount, 0)
-			log.DebugF("Too many errors (%d), switching server\n", newCount)
-			queueSwitch(doSwitch, types.SwitchRequest{
-				Type:        "avoid_auto",
-				AvoidServer: state.CurrentServer(),
-			})
-		}
-	} else {
-		// 成功时减少错误计数（但不低于0）
-		decrementErrorCount(&state.ErrorCount)
-	}
-}
-
-func queueSwitch(ch chan<- types.SwitchRequest, req types.SwitchRequest) {
-	select {
-	case ch <- req:
-	default:
-		log.DebugF("Switch queue full, skipping duplicate request: %s\n", req.Type)
+	if serverDown && state.RecordFailure(generation, time.Now()) {
+		state.QueueAutoSwitch(doSwitch, types.SwitchRequest{Type: "avoid_auto", AvoidServer: server, Generation: generation})
 	}
 }
 
@@ -129,19 +112,6 @@ func closeRead(conn net.Conn) {
 	}
 }
 
-// decrementErrorCount 原子地减少错误计数，但不会低于0
-func decrementErrorCount(count *int32) {
-	for {
-		old := atomic.LoadInt32(count)
-		if old <= 0 {
-			return
-		}
-		if atomic.CompareAndSwapInt32(count, old, old-1) {
-			return
-		}
-	}
-}
-
 func isServerDown(written int, data []byte) bool {
 	if written != 12 {
 		return false
@@ -150,4 +120,20 @@ func isServerDown(written int, data []byte) bool {
 	copy(key[:], data[:12])
 	_, isDown := DataServerDown[key]
 	return isDown
+}
+
+func udpFailureObserver(state *types.GlobalState, doSwitch chan<- types.SwitchRequest) func() func(error) {
+	return func() func(error) {
+		server, generation, running := state.ProxySnapshot()
+		if !running {
+			state.QueueAutoSwitch(doSwitch, types.SwitchRequest{Type: "recover", Generation: generation})
+			return nil
+		}
+		return func(err error) {
+			var upstreamErr upstreamConnectError
+			if errors.As(err, &upstreamErr) && state.RecordFailure(generation, time.Now()) {
+				state.QueueAutoSwitch(doSwitch, types.SwitchRequest{Type: "avoid_auto", AvoidServer: server, Generation: generation})
+			}
+		}
+	}
 }

@@ -153,3 +153,34 @@ func TestTCPForwardPreservesHalfClose(t *testing.T) {
 	<-proxyDone
 	<-upstreamDone
 }
+
+func TestUDPFailureObserverIgnoresOldFlowsAndNonTunnelErrors(t *testing.T) {
+	state := &types.GlobalState{NaiveCmd: &exec.Cmd{}}
+	state.SetCurrentServer("https://one.example")
+	requests := make(chan types.SwitchRequest, 10)
+	observe := udpFailureObserver(state, requests)
+	oldFlow := observe()
+	state.AdvanceGeneration()
+	for i := 0; i < types.FailureThreshold; i++ {
+		oldFlow(upstreamConnectError{io.EOF})
+	}
+	if len(requests) != 0 || atomic.LoadInt32(&state.ErrorCount) != 0 {
+		t.Fatal("old UDP flow counted against replacement")
+	}
+	for i := 0; i < types.FailureThreshold; i++ {
+		observe()(io.EOF)
+	}
+	if atomic.LoadInt32(&state.ErrorCount) != 0 {
+		t.Fatal("UDP destination/idle error counted as tunnel failure")
+	}
+	for i := 0; i < types.FailureThreshold*2; i++ {
+		observe()(upstreamConnectError{io.EOF})
+	}
+	if len(requests) != 1 {
+		t.Fatalf("expected one coalesced switch, got %d", len(requests))
+	}
+	req := <-requests
+	if req.AvoidServer != "https://one.example" || req.Generation != state.Generation() {
+		t.Fatalf("incorrect failure owner: %+v", req)
+	}
+}
